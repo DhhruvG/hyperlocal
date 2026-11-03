@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration-3 full backend + frontend test for Grievance Redressal + AI Assistant + Knowledge Base. Backend: 32/32 new tests PASSED via /app/backend/tests/test_grievance_ai.py — covering (a) Regression smoke (categories, vendors, discover/today-prices, discover/popular, search); (b) Grievance user flow: POST /api/grievances downgrades urgent→high for non-admins, returns HL-GRV-YYYY-NNNNNN number and status=open; GET /api/grievances/mine returns only caller's grievances; GET /api/grievances/{id} 404 for non-owner non-admin, 200 for owner with messages/history/evidence keys and empty internal_notes for consumers; POST /api/grievances/{id}/messages accepted; POST /api/grievances/{id}/evidence 400 for disallowed content-type, 400 for >5MB, 200 for valid PNG (Object Storage integration returned 200); (c) Admin: GET /api/admin/grievances list works, non-admin=404 (deny-by-default via require_admin dep), GET stats returns total/open/overdue/by_category/satisfaction_rate/priority_* fields; PATCH /api/admin/grievances/{id} updates status/priority and appends grievance_status_history; POST /api/admin/grievances/{id}/notes creates internal note VISIBLE to admin, HIDDEN from consumer GET; POST resolve marks status=resolved & inserts resolution; consumer can reopen (200), other users get 403; feedback upsert works twice; (d) AI: /api/ai/chat-simple 401 without auth, 200 for consumer with reply/used_context=true when message mentions 'my grievances', Hindi input returns Devanagari, admin+grievance_id context returns reply that references grievance number; /api/ai/triage returns valid category/priority/subject; /api/ai/history GET+DELETE work end-to-end; (e) KB: 6 seeded articles visible to admin only, CRUD works, consumer denied; (f) Security: consumer PATCH /api/admin/grievances/{id} and POST /api/admin/knowledge both 403/404. Frontend: HomePage shows floating AI button (data-testid=ai-open) — clicking opens panel with role='guest' and 4 quick prompts (What is LocalPrice? / How do vendors join? / Is it free for shoppers? / What cities do you serve?). Input disabled with 'Sign in to chat' placeholder for anon (expected). After consumer auth (via /api/auth/login + localStorage['lp_token']), panel shows 'Consumer · English' with 4 consumer prompts (Find tomato sellers near me / How do I compare prices? / How do I file a grievance? / Show my grievance status) and input becomes enabled. Sending 'How do I file a grievance?' returns detailed markdown reply within ~10s referencing Profile → Help & Grievances. /grievances page shows New grievance button (data-testid=new-grievance-btn); dialog with data-testid grv-subject/grv-description/grv-category/grv-submit works. Clicking 'AI-suggest category' calls /api/ai/triage and correctly set Category = 'Harassment / Abuse' for the abusive-behavior description. Submit creates grievance and it appears in list as HL-GRV-2026-000004. Admin login (data-testid admin-email/password/submit) works with seeded credentials. /admin/grievances shows stats chips (Total/Open/Urgent/Overdue/Resolved) plus filter bar (statuses/priorities/roles/Overdue only) and table with 4 rows including our new one. Row → /admin/grievances/{id} detail page shows subject/description badges (Open/High/Harassment / Abuse), Response due timestamp, Escalate/Request info/Resolve buttons, status+priority selectors, Conversation (No messages yet), Internal notes (admin only), Timeline (Open · Grievance created). AI Case Copilot sidebar shows 4 buttons: Summarize case / Suggest next steps / Find missing info / Draft response. Clicking Summarize case produced a ~600-char AI reply within 15s that correctly cites 'Grievance ID: HL-GRV-2026-000004', complainant name, category, priority, and separates [VERIFIED DATA] / [USER CLAIM] sections per system prompt. /admin/knowledge lists all 6 seeded articles with Edit/Delete + 'Add article' button.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AIAssistant panel (anon)", "issues": ["When not signed in, quick-prompt chips are clickable but attempting to send silently fails because input is disabled. Consider hiding the chips or redirecting anon users to /auth/consumer on chip click."]},
+      {"screen": "AdminGrievances list row", "issues": ["Row cursor is not clearly clickable — the whole row does not navigate; only the arrow-icon anchor at row end is a real <a>. Consider making the entire row a link or adding cursor-pointer + onClick on <tr>."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_grievance_ai.py",
+    "/app/test_reports/pytest/pytest_iter3.xml"
+  ],
+  "action_items": [
+    "Optional UX: make admin grievance table rows fully clickable (row → /admin/grievances/{id}), not just the trailing arrow.",
+    "Optional UX: on anon AI panel, either hide the chips or route them to /auth/consumer since input is disabled.",
+    "Consider adding a 'Login required — sign in to use AI' hint above the disabled input for anon users."
+  ],
+  "critical_code_review_comments": [
+    "grievance_ai.py is 900+ lines and mixes storage, models, routes, and AI prompt building. Consider splitting into grievance/router.py, ai/router.py, storage.py for maintainability.",
+    "admin_update_grievance calls ObjectId(gid) without try/except and can 500 with InvalidId when gid is malformed (confirmed via test bug that hit this path). Wrap ObjectId(gid) in try/except → 404. Same for _get_grv_visible and all admin routes that accept gid.",
+    "ai_chat (SSE) has dead code: `await chat.stream_message_ignore(...) if False else None` — remove.",
+    "AI triage endpoint has no auth check comment but relies on get_current_user — good; however it does not rate-limit and each call spins a fresh LlmChat session; consider a Redis-based limiter later.",
+    "put_object retries once on 404 by re-initing storage but does not handle expired keys on other 4xx; may cause silent failures.",
+    "grievance_ai.py imports emergentintegrations at module load — if package unavailable the whole app fails to start. Consider lazy import inside handlers.",
+    "grievance_ai.KnowledgeDocCreate is reused as PATCH body — all fields required for update. Should be a partial (Optional) model.",
+    "consumer detail response includes an empty `internal_notes: []` array which is a subtle info leak (confirms notes exist as a concept). Consider omitting the key entirely for non-admin."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_grievance_ai.py"
+  ],
+  "success_rate": {
+    "backend": "100% (32/32)",
+    "frontend": "100% of critical iteration-3 flows (AI open/role prompts/send, grievance create with AI triage, admin login, admin grievances list+stats+filters, admin grievance detail, AI Case Copilot Summarize, admin knowledge base list)"
+  },
+  "test_credentials": "Admin: dgstartup2026@gmail.com / Dgadmin@startup2026 (seeded). Consumer/vendor: fresh per test run under grv_c_<uid>@qa.example.com / grv_v_<uid>@qa.example.com with password Test@1234. Vendor register requires phone + shop_address in addition to prior fields (backend contract).",
+  "seed_data_creation": "Backend seeds 6 knowledge_docs on startup via seed_knowledge (only if collection empty). No additional seeding by tests beyond ephemeral TEST_-prefixed accounts and one KB article that is auto-deleted.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend base URL = REACT_APP_BACKEND_URL. Run new suite: `pytest backend/tests/test_grievance_ai.py -v -o addopts=` (pytest.ini has xdist loadscope which breaks class-level shared state; use `-o addopts=` or `-p no:xdist` to run serially — otherwise tests split across workers and TestGrievance.gid resets to None on gw1, causing 500s from ObjectId('None') in admin PATCH). Frontend auth uses localStorage key `lp_token` (NOT `token` / `user`) — set only `lp_token` and the app derives user via /api/auth/me. Emergent Object Storage IS available in this env (evidence PNG upload returned 200). Gemini 3 Flash via EMERGENT_LLM_KEY responds in ~5-10s for chat-simple and ~5s for triage; AI Case Copilot Summarize takes ~10s. Existing iteration-1/2 suites at /app/backend/tests/test_localprice_api.py and test_localprice_new_features.py were not re-run this iteration (regression smoke covered via TestRegression in the new suite).",
+  "rca of the issue": "N/A — no bugs found. Two minor RCA notes for main agent to consider: (1) admin_update_grievance would 500 with InvalidId on a malformed gid (observed during test fixture bug); trivial hardening. (2) Consumer detail leaks the internal_notes key (empty array) — minor info-model smell."
+}

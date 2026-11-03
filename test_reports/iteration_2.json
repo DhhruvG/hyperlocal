@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration-2 full backend + frontend test for LocalPrice with the many new hyperlocal features. Backend: 41/41 tests green — 27 regression cases from iteration_1 (auth, product CRUD, trial-unlimited, 15-cap after simulated expiry, search+sort+filter, click counter, analytics gating during trial and after Pro, branches gating, mock Razorpay create-order + verify activates Pro) + 14 NEW iteration-2 cases covering: GET /api/categories returns 12 items with key/label/emoji; GET /api/stats/overview returns vendor_count/online_count/product_count with seed data (>0); GET /api/discover/today-prices returns one cheapest row per unique product name; GET /api/discover/popular?limit=8 returns <=8 in-stock items with distance_label; GET /api/vendors returns list with distance_km/distance_label/avg_rating/product_count, category=vegetables filter narrows correctly, sort=rating and sort=products verified descending; GET /api/vendors/{id} returns vendor+products+reviews; POST /api/vendors/{id}/reviews upserts (only one per consumer per vendor) and refresh_vendor_stats updates avg_rating/review_count; POST /api/saved/toggle flips + GET /api/saved returns; POST /api/messages/send + GET /api/messages/threads + GET /api/messages/thread/{other_id} full flow with read-flag update; POST /api/requests + GET /api/requests/open (with replied_by_me flag) + POST /api/requests/{id}/reply (upsert per vendor) + GET /api/requests/{id}/replies sorted by price asc + /api/requests/my with reply_count; PATCH /api/vendor/profile updates shop_name/address/hours/is_online and propagates vendor_shop + vendor_address to products and public profile; seed_demo() confirmed populated 12 vendors incl. 'Munna Vegetable Cart' + 'Doon Fruit Mandi', with cart_vendors online and multiple retailers. Frontend: HomePage renders hero 'LocalPrice' + tagline + search + stats chip (10 verified · 5 online · 221 products) + quick-actions (Tell sellers / See map) + 12-category grid + today's prices + popular + vendors, footer disclaimer visible. Language toggle EN→हिं in Navbar works: tagline becomes 'स्थानीय खोजें। पास तुलना करें। समझदारी से खरीदें।', stats labels become Hindi ('सत्यापित स्थानीय विक्रेता','अभी ऑनलाइन','उत्पाद'), search placeholder in Hindi ('आप क्या ढूंढ रहे हैं?'), section title 'श्रेणी से खरीदें', 'आज के स्थानीय दाम' — HOWEVER navbar items ('Find products/Map/I need/Sign in/List shop') and category card labels (Vegetables/Fruits/...) remain English (minor). Bottom nav on 390px mobile shows all 7 items (Home, Search, Map, I need, Saved, Messages, Profile). MapPage /map loads Leaflet OSM (18 tiles rendered, markers). Vendor detail /vendors/:id shows product grid, reviews, Directions/Chat/View buttons. /i-need loads and 'Post request' opens dialog with What/Quantity/Category/Note fields + Post button. Consumer signup succeeds and redirects to /search; /saved shows empty state ('Nothing saved yet'); /profile displays user email + Logout. Search page loads all 12 category pills + All. No JS errors, only harmless 401s on /api/auth/me for anon users.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Navbar", "issues": ["When language toggled to Hindi, top-nav items (Find products, Map, I need, Sign in, List shop) remain English. Consider running these through t()."]},
+      {"screen": "HomePage category grid", "issues": ["Category card labels (Vegetables, Fruits, ...) come from /api/categories which returns EN labels only, so they stay EN in Hindi mode. Add Hindi labels in the categories map or translate on client."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_localprice_api.py",
+    "/app/backend/tests/test_localprice_new_features.py",
+    "/app/test_reports/pytest/pytest_iter2.xml"
+  ],
+  "action_items": [
+    "Optional: translate Navbar links + top-nav CTAs via t() for full EN/हिं parity.",
+    "Optional: return localized category label from /api/categories or map on client using lang.jsx.",
+    "Consider adding data-testid attributes to new pages/components (BottomNav items, Language toggle, INeed post dialog, Saved page state, VendorProfile submit-review form, MessageThread input) to make future E2E tests deterministic. Right now only iteration-1 pages have data-testids (see /app/frontend/src/constants/testIds/app.js).",
+    "Carry-over from iteration_1 (still valid): /api/products/{id}/click has no auth/rate-limit; /api/search bumps views for empty queries; CORS uses '*' with credentials — works because of localStorage Bearer fallback."
+  ],
+  "critical_code_review_comments": [
+    "server.py has grown to 1062 lines and mixes auth, products, discover, vendors, reviews, saved, messages, requests, branches, payments, seed. Split into routers per resource for maintainability (backend/routers/auth.py, vendors.py, discover.py, messages.py, requests.py, payments.py, seed.py).",
+    "compute_trial_status uses datetime.fromisoformat with silent except — pro_expires_at written by verify_payment as expires_at.isoformat() is offset-aware, but trial_started_at is compared against now(timezone.utc) which is correct; keep an eye on any pre-existing naive strings.",
+    "list_vendors filters by category via db.products.distinct('vendor_id', {category: ...}) — string IDs. Works but couple this with an index on products.category (already added) and vendor_id.",
+    "get_thread marks incoming messages as read on every fetch; frontend polls every 5s per requirement — expected DB writes will grow. Consider only writing when there are unread docs.",
+    "toggle_saved uses saved unique index on (user_id, product_id) — good. list_saved returns products but does not preserve saved order beyond insertion order of ObjectId $in.",
+    "seed_demo runs on every startup but guards via count of @seed.local emails, which is idempotent — good."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_localprice_new_features.py"
+  ],
+  "success_rate": {"backend": "100% (41/41)", "frontend": "100% smoke of critical flows"},
+  "test_credentials": "Fresh accounts per run: qa_ui_<uid>@qa.example.com / Test@1234 (consumer), test_vend2_<uid>@qa.example.com / Test@1234 (vendor). Seed demo vendors use @seed.local emails with password demo1234 (backend-side use only; do not sign in).",
+  "seed_data_creation": "Backend startup seeds 12 demo vendors + ~60 products (verified in TestSeed). No additional seeding by tests beyond ephemeral TEST_-prefixed accounts.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend base URL = REACT_APP_BACKEND_URL from frontend/.env (https://hyperlocal-deals-6.preview.emergentagent.com). Razorpay MOCK mode; /api/payments/verify auto-approves without signature. Two test suites live at /app/backend/tests/: test_localprice_api.py (27) and test_localprice_new_features.py (14). Run with `pytest backend/tests/ -v` — configured via /app/backend/pytest.ini with -n 2 --dist loadscope. Frontend Bottom nav / Language toggle / MapPage / INeed / Saved / Messages / Profile / VendorProfile all functional but lack data-testid — use text/role selectors. Hindi translation only applied to HomePage body texts (tagline, stats labels, section titles, search placeholder). Navbar links and category card labels remain EN."
+}

@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Figtree:wght@300;400;500;600;700&display=swap');
+
+body {
+    margin: 0;
+    font-family: 'Figtree', ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: #FAFAF9;
+    color: #1c1917;
+}
+
+h1, h2, h3, h4, h5, .font-display {
+    font-family: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.02em;
+}
+
+.eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.glass-nav {
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: saturate(150%) blur(18px);
+    -webkit-backdrop-filter: saturate(150%) blur(18px);
+    border-bottom: 1px solid rgba(28, 25, 23, 0.08);
+}
+
+.grain-bg {
+    position: relative;
+}
+.grain-bg::after {
+    content: '';
+    position: absolute; inset: 0; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.35 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.6;
+    mix-blend-mode: multiply;
+}
+
+.hero-mesh {
+    background:
+        radial-gradient(1200px 500px at 10% -10%, rgba(10,110,59,0.18), transparent 60%),
+        radial-gradient(900px 400px at 100% 0%, rgba(245,158,11,0.16), transparent 60%),
+        linear-gradient(#FAFAF9, #FAFAF9);
+}
+
+.chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 9999px;
+    font-size: 0.72rem; font-weight: 600;
+    background: rgba(10,110,59,0.08); color: #0A6E3B;
+    border: 1px solid rgba(10,110,59,0.18);
+}
+
+.chip-amber {
+    background: rgba(245,158,11,0.12); color: #92400E;
+    border-color: rgba(245,158,11,0.35);
+}
+
+.card-hover {
+    transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+}
+.card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 35px -20px rgba(10,110,59,0.35);
+    border-color: rgba(10,110,59,0.35);
+}
+
+@layer base {
+    :root {
+        --background: 60 9% 98%;
+        --foreground: 20 14% 10%;
+        --card: 0 0% 100%;
+        --card-foreground: 20 14% 10%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 20 14% 10%;
+        --primary: 149 83% 24%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 40 20% 96%;
+        --secondary-foreground: 20 14% 10%;
+        --muted: 40 15% 94%;
+        --muted-foreground: 25 5% 40%;
+        --accent: 36 95% 50%;
+        --accent-foreground: 20 14% 10%;
+        --destructive: 0 72% 45%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 30 10% 88%;
+        --input: 30 10% 88%;
+        --ring: 149 83% 24%;
+        --radius: 0.65rem;
+    }
+}
+
+@layer base {
+    * { @apply border-border; }
+    body { @apply bg-background text-foreground; }
+    [data-debug-wrapper="true"] { display: contents !important; }
+}
