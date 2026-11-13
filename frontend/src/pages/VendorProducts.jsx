@@ -99,6 +99,29 @@ export default function VendorProducts() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyItems, setHistoryItems] = useState([]);
 
+  // Point 2 & Point 3: Inventory Trust & Frictionless Inventory States
+  const [onboarding, setOnboarding] = useState(null);
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [csvText, setCsvText] = useState('name,price,unit,category,stock_quantity\nMaggi Masala 2-Minute,14,packet,groceries,25\nAmul Taaza Milk 500ml,27,packet,dairy,30');
+  const [importingCsv, setImportingCsv] = useState(false);
+  const [assistModalOpen, setAssistModalOpen] = useState(false);
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [invoiceTextInput, setInvoiceTextInput] = useState('10 packet Maggi 14 rupees\n20 Dairy Milk 20 rupees\nSurf Excel 1 kg 135 rupees');
+  const [extractedAssistItems, setExtractedAssistItems] = useState([]);
+  const [confirmingAll, setConfirmingAll] = useState(false);
+
+  // Smart Product Entry & Non-Destructive Active Cap States (Part 3.4 & Part 4.6)
+  const [templates, setTemplates] = useState([]);
+  const [templateFilter, setTemplateFilter] = useState('');
+  const [quickSelectedTemplate, setQuickSelectedTemplate] = useState(null);
+  const [quickPrice, setQuickPrice] = useState('');
+  const [quickUnit, setQuickUnit] = useState('kg');
+  const [inlinePriceId, setInlinePriceId] = useState(null);
+  const [inlinePriceVal, setInlinePriceVal] = useState('');
+  const [selectActiveOpen, setSelectActiveOpen] = useState(false);
+  const [selectedActiveIds, setSelectedActiveIds] = useState([]);
+  const [savingActiveCap, setSavingActiveCap] = useState(false);
+
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -111,6 +134,209 @@ export default function VendorProducts() {
       setProducts(data);
     } catch {
       // ignore
+    }
+    try {
+      const { data } = await api.get('/vendor/onboarding-progress');
+      setOnboarding(data);
+    } catch {
+      // ignore
+    }
+    try {
+      const { data } = await api.get('/vendor/product-templates');
+      setTemplates(data.templates || []);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleQuickPublishTemplate = async (keepOpen = false) => {
+    if (!quickSelectedTemplate || !quickPrice || parseFloat(quickPrice) <= 0) {
+      toast.error('Please enter a valid price in ₹');
+      return;
+    }
+    setSaving(true);
+    try {
+      const { data } = await api.post('/vendor/products', {
+        name: quickSelectedTemplate.name_en || quickSelectedTemplate.name,
+        category: quickSelectedTemplate.category || 'vegetables',
+        price: parseFloat(quickPrice),
+        unit: quickUnit || quickSelectedTemplate.unit || 'kg',
+        description: '',
+        in_stock: true,
+        is_featured: false,
+      });
+      setProducts([data, ...products]);
+      toast.success(`Published ${data.name} at ₹${data.price}/${data.unit}!`);
+      if (!keepOpen) {
+        setQuickSelectedTemplate(null);
+        setQuickPrice('');
+      } else {
+        setQuickPrice('');
+      }
+      refresh();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || 'Failed to add product');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveInlinePrice = async (p) => {
+    const newPrice = parseFloat(inlinePriceVal);
+    if (isNaN(newPrice) || newPrice <= 0) {
+      toast.error('Enter a valid price');
+      return;
+    }
+    try {
+      const { data } = await api.patch(`/vendor/products/${p.id}`, { price: newPrice });
+      setProducts(products.map((x) => (x.id === p.id ? { ...x, ...data } : x)));
+      setInlinePriceId(null);
+      toast.success(`Updated ${p.name} price to ₹${newPrice}`);
+    } catch {
+      toast.error('Could not update price');
+    }
+  };
+
+  const handleDuplicateProduct = (p) => {
+    setForm({
+      name: `${p.name}`,
+      category: p.category || '',
+      price: p.price,
+      unit: p.unit || 'kg',
+      description: p.description || '',
+      in_stock: true,
+      is_featured: false,
+    });
+    setEditingId(null);
+    setDialog(true);
+  };
+
+  const openSelectActiveCapModal = () => {
+    const cap = user?.free_product_cap || (user?.vendor_type === 'cart_vendor' ? 20 : 30);
+    const activeIds = products.filter((p) => p.in_stock).slice(0, cap).map((p) => p.id);
+    setSelectedActiveIds(activeIds);
+    setSelectActiveOpen(true);
+  };
+
+  const handleSaveActiveCapSelection = async () => {
+    setSavingActiveCap(true);
+    try {
+      const { data } = await api.post('/vendor/products/select-active', {
+        active_product_ids: selectedActiveIds,
+      });
+      toast.success(data.message || 'Active product selection updated!');
+      setSelectActiveOpen(false);
+      await load();
+      refresh();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail) || 'Could not update active listings');
+    } finally {
+      setSavingActiveCap(false);
+    }
+  };
+
+  const handleConfirmAllUnchanged = async () => {
+    setConfirmingAll(true);
+    try {
+      const { data } = await api.post('/vendor/inventory/confirm-all-unchanged');
+      toast.success(`Confirmed ${data.confirmed_count || products.length} products as fresh (🟢)!`);
+      await load();
+    } catch (e) {
+      toast.error('Failed to confirm inventory');
+    } finally {
+      setConfirmingAll(false);
+    }
+  };
+
+  const handleConfirmSingleProduct = async (productId) => {
+    try {
+      await api.post('/vendor/inventory/confirm', { product_ids: [productId], still_available: true });
+      toast.success('Product marked Confirmed Recently (🟢)');
+      await load();
+    } catch {
+      toast.error('Could not confirm product');
+    }
+  };
+
+  const handleCopyPreviousInventory = async () => {
+    try {
+      const { data } = await api.post('/vendor/inventory/copy-previous');
+      toast.success(`Restored ${data.restored_count || 0} products & refreshed catalogue!`);
+      await load();
+    } catch {
+      toast.error('Could not copy previous inventory');
+    }
+  };
+
+  const handleImportCsv = async () => {
+    if (!csvText.trim()) return;
+    setImportingCsv(true);
+    try {
+      const { data } = await api.post('/vendor/inventory/import', { csv_text: csvText });
+      toast.success(`Imported: ${data.created} created, ${data.updated} updated`);
+      setCsvModalOpen(false);
+      await load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'CSV import failed');
+    } finally {
+      setImportingCsv(false);
+    }
+  };
+
+  const handleLookupBarcode = async () => {
+    if (!barcodeInput.trim()) return;
+    try {
+      const { data } = await api.get(`/vendor/inventory/barcode/${encodeURIComponent(barcodeInput.trim())}`);
+      if (data.found && data.item) {
+        setExtractedAssistItems([
+          ...extractedAssistItems,
+          {
+            name: data.item.name,
+            price: data.item.suggested_price || 20,
+            unit: data.item.unit || 'packet',
+            category: data.item.category || 'groceries',
+            stock_quantity: 10,
+          },
+        ]);
+        toast.success(`Matched barcode: ${data.item.name}`);
+      } else {
+        toast.info(data.message || 'Barcode not in registry yet — enter details below');
+      }
+    } catch {
+      toast.error('Barcode lookup failed');
+    }
+  };
+
+  const handleExtractInvoice = async () => {
+    if (!invoiceTextInput.trim()) return;
+    try {
+      const { data } = await api.post('/vendor/inventory/extract-invoice', { raw_text: invoiceTextInput });
+      const mapped = (data.extracted_items || []).map((it) => ({
+        name: it.product_name_en || it.raw_segment,
+        price: it.selling_price || 20,
+        unit: (it.stock_unit || 'packet').toLowerCase(),
+        category: it.category || 'groceries',
+        stock_quantity: it.stock_quantity || 10,
+        confidence: it.extraction_confidence,
+        requires_confirmation: it.requires_confirmation,
+      }));
+      setExtractedAssistItems(mapped);
+      toast.success(`Extracted ${mapped.length} line items for review`);
+    } catch {
+      toast.error('Extraction failed');
+    }
+  };
+
+  const handlePublishAssistItems = async () => {
+    if (!extractedAssistItems.length) return;
+    try {
+      const { data } = await api.post('/vendor/inventory/import', { rows: extractedAssistItems });
+      toast.success(`Published: ${data.created} created, ${data.updated} updated`);
+      setExtractedAssistItems([]);
+      setAssistModalOpen(false);
+      await load();
+    } catch {
+      toast.error('Could not save extracted items');
     }
   };
 
@@ -155,8 +381,8 @@ export default function VendorProducts() {
     setDialog(true);
   };
 
-  const save = async (e) => {
-    e.preventDefault();
+  const save = async (e, keepOpen = false) => {
+    if (e) e.preventDefault();
     setSaving(true);
     try {
       const payload = { ...form, price: parseFloat(form.price) };
@@ -164,12 +390,17 @@ export default function VendorProducts() {
         const { data } = await api.patch(`/vendor/products/${editingId}`, payload);
         setProducts(products.map(p => p.id === editingId ? data : p));
         toast.success('Product updated');
+        setDialog(false);
       } else {
         const { data } = await api.post('/vendor/products', payload);
         setProducts([data, ...products]);
         toast.success('Product added');
+        if (keepOpen) {
+          setForm({ ...empty, category: form.category, unit: form.unit });
+        } else {
+          setDialog(false);
+        }
       }
-      setDialog(false);
       refresh();
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
@@ -556,8 +787,19 @@ export default function VendorProducts() {
                   <Label className="text-sm flex items-center gap-1.5"><Sparkles size={13} className="text-amber-700" /> Featured (Pro)</Label>
                   <Switch data-testid={PRODUCT_FORM.featuredSwitch} disabled={!isPro} checked={form.is_featured} onCheckedChange={(v) => setForm({ ...form, is_featured: v })} />
                 </div>
-                <DialogFooter>
+                <DialogFooter className="flex flex-wrap gap-2">
                   <Button data-testid={PRODUCT_FORM.cancelButton} type="button" variant="ghost" onClick={() => setDialog(false)}>Cancel</Button>
+                  {!editingId && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={saving}
+                      onClick={(e) => save(e, true)}
+                      className="rounded-full border-emerald-600 text-[#0A6E3B]"
+                    >
+                      Save & Add Another
+                    </Button>
+                  )}
                   <Button data-testid={PRODUCT_FORM.submitButton} type="submit" disabled={saving} className="rounded-full bg-[#0A6E3B] hover:bg-[#075030] text-white">{saving ? 'Saving…' : editingId ? 'Save changes' : 'Add product'}</Button>
                 </DialogFooter>
               </form>
@@ -575,6 +817,76 @@ export default function VendorProducts() {
             className="rounded-full text-stone-600 hover:text-[#0A6E3B]"
           >
             <History size={15} className="mr-1.5" /> Voice History
+          </Button>
+        </div>
+      </div>
+
+      {/* Point 2 & Point 3: Onboarding Progress & Frictionless Inventory Trust Toolbar */}
+      <div className="mt-5 rounded-2xl border border-stone-200 bg-white p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-sm">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-semibold uppercase tracking-wider text-emerald-800">Inventory Freshness & Onboarding</span>
+            {onboarding && (
+              <Badge className="bg-emerald-50 text-emerald-900 border border-emerald-200 text-[11px]">
+                {onboarding.completion_pct}% Onboarding Complete ({onboarding.completed_steps}/{onboarding.total_steps})
+              </Badge>
+            )}
+          </div>
+          {onboarding?.steps && (
+            <div className="flex flex-wrap gap-1.5 pt-0.5">
+              {onboarding.steps.map((s) => (
+                <span
+                  key={s.key}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                    s.completed ? 'bg-emerald-100 text-emerald-900' : 'bg-stone-100 text-stone-500'
+                  }`}
+                >
+                  {s.completed ? '✓' : '○'} {s.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleConfirmAllUnchanged}
+            disabled={confirmingAll || products.length === 0}
+            data-testid="confirm-all-unchanged-btn"
+            className="rounded-full bg-emerald-700 hover:bg-emerald-800 text-white text-xs"
+          >
+            <CheckCircle2 size={13} className="mr-1.5" />
+            {confirmingAll ? 'Confirming…' : '🟢 Confirm All Unchanged'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setCsvModalOpen(true)}
+            data-testid="open-csv-import-btn"
+            className="rounded-full border-stone-300 text-stone-700 text-xs"
+          >
+            CSV / Bulk Import
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setAssistModalOpen(true)}
+            data-testid="open-assist-extract-btn"
+            className="rounded-full border-stone-300 text-stone-700 text-xs"
+          >
+            Barcode / Invoice Assist
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={handleCopyPreviousInventory}
+            className="rounded-full text-stone-600 text-xs"
+          >
+            <RotateCcw size={13} className="mr-1" /> Copy Previous
           </Button>
         </div>
       </div>
@@ -663,9 +975,112 @@ export default function VendorProducts() {
       )}
 
       {!canAdd && (
-        <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 flex items-center justify-between">
-          <div className="text-sm text-amber-900">You've hit the {limit}-product free cap. Upgrade to Pro to list unlimited products.</div>
-          <Link to="/vendor/pricing"><Button className="rounded-full bg-[#0A6E3B] hover:bg-[#075030] text-white">Upgrade to Pro</Button></Link>
+        <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="text-sm text-amber-900">
+            <strong>Free Plan Active Cap Reached ({limit} active products).</strong> None of your products or business history are ever deleted! You can choose which {limit} listings stay active in search, or upgrade to Pro for unlimited active listings.
+          </div>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <Button variant="outline" onClick={openSelectActiveCapModal} className="rounded-full border-amber-400 text-amber-950 bg-white">
+              Choose Active Products ({limit})
+            </Button>
+            <Link to="/vendor/pricing"><Button className="rounded-full bg-[#0A6E3B] hover:bg-[#075030] text-white">Upgrade to Pro</Button></Link>
+          </div>
+        </div>
+      )}
+
+      {/* Part 3.4: Smart 1-Tap Product Templates (Select item -> Enter price -> Publish) */}
+      {canAdd && templates.length > 0 && (
+        <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wider text-[#0A6E3B]">⚡ Quick 1-Tap Product Templates</div>
+              <p className="text-xs text-stone-500">Tap a common item, check/enter your price, and publish in seconds — no typing needed.</p>
+            </div>
+            <Input
+              value={templateFilter}
+              onChange={(e) => setTemplateFilter(e.target.value)}
+              placeholder="Filter templates (e.g. Tomato, Milk, Maggi)..."
+              className="h-8 text-xs max-w-xs"
+            />
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {templates
+              .filter((t) => !templateFilter.trim() || t.name.toLowerCase().includes(templateFilter.toLowerCase()) || t.name_hinglish?.toLowerCase().includes(templateFilter.toLowerCase()))
+              .slice(0, 12)
+              .map((tpl) => {
+                const isSelected = quickSelectedTemplate?.name_en === tpl.name_en;
+                return (
+                  <button
+                    key={tpl.name_en}
+                    type="button"
+                    onClick={() => {
+                      setQuickSelectedTemplate(tpl);
+                      setQuickPrice(String(tpl.suggested_price || ''));
+                      setQuickUnit(tpl.unit || 'kg');
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                      isSelected
+                        ? 'bg-[#0A6E3B] text-white border-[#0A6E3B] shadow-xs'
+                        : 'bg-stone-50 text-stone-800 border-stone-200 hover:border-emerald-500'
+                    }`}
+                  >
+                    + {tpl.name} · ₹{tpl.suggested_price}/{tpl.unit}
+                  </button>
+                );
+              })}
+          </div>
+          {quickSelectedTemplate && (
+            <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 flex flex-wrap items-center gap-3">
+              <div className="text-xs font-semibold text-stone-900">
+                Adding: <span className="text-[#0A6E3B]">{quickSelectedTemplate.name}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-stone-600">Price (₹):</span>
+                <Input
+                  type="number"
+                  value={quickPrice}
+                  onChange={(e) => setQuickPrice(e.target.value)}
+                  className="h-8 w-24 text-xs bg-white"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-stone-600">Unit:</span>
+                <Input
+                  value={quickUnit}
+                  onChange={(e) => setQuickUnit(e.target.value)}
+                  className="h-8 w-20 text-xs bg-white"
+                />
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                disabled={saving}
+                onClick={() => handleQuickPublishTemplate(false)}
+                className="h-8 rounded-full bg-[#0A6E3B] hover:bg-[#075030] text-white text-xs"
+              >
+                Publish Now
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={saving}
+                onClick={() => handleQuickPublishTemplate(true)}
+                className="h-8 rounded-full border-emerald-600 text-[#0A6E3B] text-xs bg-white"
+              >
+                Save & Add Another
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setQuickSelectedTemplate(null)}
+                className="h-8 text-xs text-stone-500"
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -721,13 +1136,67 @@ export default function VendorProducts() {
                     : '—'}
                 </TableCell>
                 <TableCell className="font-semibold text-[#0A6E3B]">
-                  ₹{p.price}<span className="text-xs text-stone-500 ml-1">{p.unit ? `/${p.unit}` : ''}</span>
+                  {inlinePriceId === p.id ? (
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        value={inlinePriceVal}
+                        onChange={(e) => setInlinePriceVal(e.target.value)}
+                        className="h-7 w-20 text-xs"
+                        autoFocus
+                      />
+                      <Button size="sm" onClick={() => handleSaveInlinePrice(p)} className="h-7 px-2 bg-[#0A6E3B] text-white text-[10px]">
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setInlinePriceId(null)} className="h-7 px-1.5 text-[10px]">
+                        ✕
+                      </Button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInlinePriceId(p.id);
+                        setInlinePriceVal(String(p.price));
+                      }}
+                      title="Tap to quickly update price"
+                      className="hover:underline text-left"
+                    >
+                      ₹{p.price}<span className="text-xs text-stone-500 ml-1">{p.unit ? `/${p.unit}` : ''}</span>
+                      <span className="ml-1 text-[10px] text-stone-400">✎</span>
+                    </button>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Switch data-testid={PRODUCT_FORM.toggleAvailability} checked={p.in_stock} onCheckedChange={() => toggleAvail(p)} />
                 </TableCell>
-                <TableCell className="text-xs text-stone-500">{new Date(p.updated_at).toLocaleDateString()}</TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-xs text-stone-500">
+                  <div>{new Date(p.updated_at).toLocaleDateString()}</div>
+                  <div className="mt-0.5 text-[10px] font-medium text-emerald-800">
+                    {p.freshness_badge || '🟢 Confirmed recently'}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right whitespace-nowrap">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleConfirmSingleProduct(p.id)}
+                    title="Confirm still available (boosts freshness score)"
+                    className="h-7 px-2 text-[11px] text-emerald-700 hover:bg-emerald-50 mr-1"
+                  >
+                    ✓ Confirm
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDuplicateProduct(p)}
+                    title="Duplicate product"
+                    className="h-7 px-2 text-[11px] text-stone-600 hover:bg-stone-100 mr-1"
+                  >
+                    Duplicate
+                  </Button>
                   <Button data-testid={PRODUCT_FORM.editButton} variant="ghost" size="icon" onClick={() => openEdit(p)}><Pencil size={14} /></Button>
                   <Button data-testid={PRODUCT_FORM.deleteButton} variant="ghost" size="icon" onClick={() => remove(p.id)} className="text-red-600 hover:text-red-700"><Trash2 size={14} /></Button>
                 </TableCell>
@@ -743,6 +1212,196 @@ export default function VendorProducts() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Part 4.6: Non-Destructive Active Listing Cap Selector Modal */}
+      <Dialog open={selectActiveOpen} onOpenChange={setSelectActiveOpen}>
+        <DialogContent className="bg-white max-w-xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Choose Which Products Stay Active in Search</DialogTitle>
+            <DialogDescription>
+              Your Free plan supports up to {limit || 30} active listings. Select up to {limit || 30} products below to keep live. Unselected products are safely paused and never deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2 max-h-80 overflow-y-auto">
+            <div className="text-xs font-semibold text-stone-700">
+              Selected: {selectedActiveIds.length} / {limit || 30}
+            </div>
+            {products.map((p) => {
+              const checked = selectedActiveIds.includes(p.id);
+              return (
+                <label key={p.id} className="flex items-center justify-between p-2.5 rounded-xl border border-stone-200 bg-stone-50 text-xs cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          if (selectedActiveIds.length >= (limit || 30)) {
+                            toast.info(`You can select up to ${limit || 30} products on the Free plan.`);
+                            return;
+                          }
+                          setSelectedActiveIds([...selectedActiveIds, p.id]);
+                        } else {
+                          setSelectedActiveIds(selectedActiveIds.filter((id) => id !== p.id));
+                        }
+                      }}
+                    />
+                    <span className="font-medium text-stone-900">{p.name}</span>
+                  </div>
+                  <span className="text-[#0A6E3B] font-semibold">₹{p.price}/{p.unit || 'unit'}</span>
+                </label>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setSelectActiveOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveActiveCapSelection} disabled={savingActiveCap} className="rounded-full bg-[#0A6E3B] text-white">
+              {savingActiveCap ? 'Saving…' : 'Save Active Selection'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Point 3: CSV / Bulk Import Modal */}
+      <Dialog open={csvModalOpen} onOpenChange={setCsvModalOpen}>
+        <DialogContent className="bg-white max-w-xl">
+          <DialogHeader>
+            <DialogTitle>CSV / Bulk Inventory Import</DialogTitle>
+            <DialogDescription>
+              Paste CSV rows (`name,price,unit,category,stock_quantity`). Duplicate items automatically update existing products and refresh inventory confidence to 🟢 Confirmed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Textarea
+              rows={6}
+              value={csvText}
+              onChange={(e) => setCsvText(e.target.value)}
+              className="font-mono text-xs"
+              placeholder="name,price,unit,category,stock_quantity"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCsvModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleImportCsv} disabled={importingCsv} className="rounded-full bg-[#0A6E3B] text-white">
+              {importingCsv ? 'Importing…' : 'Import & Confirm Inventory'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Point 3: Barcode & Invoice/Text-Assisted Extraction Modal */}
+      <Dialog open={assistModalOpen} onOpenChange={setAssistModalOpen}>
+        <DialogContent className="bg-white max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Barcode & Invoice-Assisted Inventory Extraction</DialogTitle>
+            <DialogDescription>
+              Scan/enter an EAN/UPC barcode or paste wholesale bill / distributor invoice lines. Low-confidence items are flagged for confirmation before publishing.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-3 rounded-xl bg-stone-50 border border-stone-200 space-y-2">
+              <Label className="text-xs font-semibold">1. Barcode Lookup (EAN / UPC)</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  placeholder="Enter barcode (e.g., 8901058000290)"
+                />
+                <Button type="button" variant="outline" onClick={handleLookupBarcode}>Lookup</Button>
+              </div>
+            </div>
+            <div className="p-3 rounded-xl bg-stone-50 border border-stone-200 space-y-2">
+              <Label className="text-xs font-semibold">2. Wholesale Bill / Invoice Text Extraction</Label>
+              <Textarea
+                rows={4}
+                value={invoiceTextInput}
+                onChange={(e) => setInvoiceTextInput(e.target.value)}
+                className="text-xs"
+                placeholder="e.g. 10 packet Maggi 14 rupees, 20 Dairy Milk 20 rupees, Surf Excel 1 kg 135"
+              />
+              <Button type="button" size="sm" onClick={handleExtractInvoice} className="bg-emerald-700 text-white">
+                Extract Structured Products
+              </Button>
+            </div>
+
+            {extractedAssistItems.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-stone-700">Extracted Items ({extractedAssistItems.length}) — Review before publishing:</div>
+                {extractedAssistItems.map((it, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2 items-center p-2 rounded-lg border border-stone-200 bg-white text-xs">
+                    <div className="col-span-5">
+                      <Input
+                        value={it.name}
+                        onChange={(e) => {
+                          const next = [...extractedAssistItems];
+                          next[idx].name = e.target.value;
+                          setExtractedAssistItems(next);
+                        }}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <Input
+                        type="number"
+                        value={it.price}
+                        onChange={(e) => {
+                          const next = [...extractedAssistItems];
+                          next[idx].price = parseFloat(e.target.value) || 0;
+                          setExtractedAssistItems(next);
+                        }}
+                        className="h-8 text-xs"
+                        placeholder="₹ Price"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <Input
+                        value={it.unit}
+                        onChange={(e) => {
+                          const next = [...extractedAssistItems];
+                          next[idx].unit = e.target.value;
+                          setExtractedAssistItems(next);
+                        }}
+                        className="h-8 text-xs"
+                        placeholder="Unit"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <Input
+                        type="number"
+                        value={it.stock_quantity}
+                        onChange={(e) => {
+                          const next = [...extractedAssistItems];
+                          next[idx].stock_quantity = parseFloat(e.target.value) || 0;
+                          setExtractedAssistItems(next);
+                        }}
+                        className="h-8 text-xs"
+                        placeholder="Qty"
+                      />
+                    </div>
+                    <div className="col-span-1 text-right">
+                      {it.requires_confirmation ? (
+                        <Badge className="bg-amber-100 text-amber-900 border-0 text-[9px]">Verify</Badge>
+                      ) : (
+                        <Badge className="bg-emerald-100 text-emerald-900 border-0 text-[9px]">OK</Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setAssistModalOpen(false)}>Cancel</Button>
+            <Button
+              disabled={extractedAssistItems.length === 0}
+              onClick={handlePublishAssistItems}
+              className="rounded-full bg-[#0A6E3B] text-white"
+            >
+              Publish {extractedAssistItems.length} Item(s)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ===================================================================== */}
       {/* AI VOICE-TO-INVENTORY MODAL (Recording -> Verification -> Publish)    */}

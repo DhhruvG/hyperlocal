@@ -36,27 +36,79 @@ export function AdminLayout() {
   if (loading) return <div className="min-h-screen grid place-items-center text-stone-500">Loading…</div>;
   if (!user || user.role !== 'admin') return <Navigate to="/admin/login" replace />;
 
-  const items = [
-    { to: '/admin', end: true, icon: LayoutDashboard, label: 'Overview' },
-    { to: '/admin/ai-control-center', icon: Sliders, label: 'AI Control Center' },
-    { to: '/admin/voice-inventory', icon: Mic, label: 'AI Voice Inventory' },
-    { to: '/admin/smart-features', icon: Cpu, label: 'Smart Features' },
-    { to: '/admin/ai-playground', icon: Bot, label: 'AI Playground' },
-    { to: '/admin/attribution', icon: TrendingUp, label: 'Attribution & Impact' },
-    { to: '/admin/audit-logs', icon: ShieldCheck, label: 'Audit Logs' },
-    { to: '/admin/grievances', icon: LifeBuoy, label: 'Grievances' },
-    { to: '/admin/vendors', icon: Store, label: 'Vendors' },
-    { to: '/admin/consumers', icon: Users, label: 'Consumers' },
-    { to: '/admin/products', icon: Package, label: 'Products' },
-    { to: '/admin/reviews', icon: Star, label: 'Reviews' },
-    { to: '/admin/messages', icon: MessageSquare, label: 'Messages' },
-    { to: '/admin/requests', icon: Megaphone, label: '"I need" requests' },
-    { to: '/admin/orders', icon: CreditCard, label: 'Subscription Orders' },
-    { to: '/admin/billing', icon: FileText, label: 'Billing & Checkout' },
-    { to: '/admin/payments', icon: Wallet, label: 'Payment settings' },
-    { to: '/admin/ai-knowledge', icon: Sparkles, label: 'AI Knowledge & RAG' },
-    { to: '/admin/knowledge', icon: BookOpen, label: 'Legacy KB Docs' },
+  const sections = [
+    {
+      title: '1. Overview',
+      items: [
+        { to: '/admin', end: true, icon: LayoutDashboard, label: 'Overview' },
+        { to: '/admin/commerce-os', icon: Rocket, label: 'Executive & Commerce OS' },
+      ],
+    },
+    {
+      title: '2. Users and Vendors',
+      items: [
+        { to: '/admin/vendors', icon: Store, label: 'Vendors' },
+        { to: '/admin/consumers', icon: Users, label: 'Consumers' },
+        { to: '/admin/growth-ops', icon: TrendingUp, label: 'Localities & Growth CRM' },
+      ],
+    },
+    {
+      title: '3. Products and Marketplace',
+      items: [
+        { to: '/admin/products', icon: Package, label: 'Products' },
+        { to: '/admin/inventory-trust', icon: Package, label: 'Inventory Trust' },
+        { to: '/admin/requests', icon: Megaphone, label: '"I need" requests' },
+        { to: '/admin/reviews', icon: Star, label: 'Reviews' },
+      ],
+    },
+    {
+      title: '4. Subscriptions and Revenue',
+      items: [
+        { to: '/admin/revenue-center', icon: Wallet, label: 'Revenue Control Center' },
+        { to: '/admin/orders', icon: CreditCard, label: 'Subscription Orders' },
+        { to: '/admin/billing', icon: FileText, label: 'Billing & Checkout' },
+      ],
+    },
+    {
+      title: '5. Campaigns',
+      items: [
+        { to: '/admin/campaigns', icon: Megaphone, label: 'Sponsored Campaigns' },
+      ],
+    },
+    {
+      title: '6. AI and Analytics',
+      items: [
+        { to: '/admin/attribution', icon: TrendingUp, label: 'Attribution & Impact' },
+        { to: '/admin/ai-control-center', icon: Sliders, label: 'AI Control Center' },
+        { to: '/admin/voice-inventory', icon: Mic, label: 'AI Voice Inventory' },
+        { to: '/admin/smart-features', icon: Cpu, label: 'Smart Features' },
+        { to: '/admin/ai-playground', icon: Bot, label: 'AI Playground' },
+        { to: '/admin/ai-knowledge', icon: Sparkles, label: 'AI Knowledge & RAG' },
+        { to: '/admin/knowledge', icon: BookOpen, label: 'Legacy KB Docs' },
+      ],
+    },
+    {
+      title: '7. Trust and Safety',
+      items: [
+        { to: '/admin/risk-governance', icon: ShieldCheck, label: 'Fraud, Flags & RBAC' },
+        { to: '/admin/audit-logs', icon: ShieldCheck, label: 'Audit Logs' },
+      ],
+    },
+    {
+      title: '8. Support and Grievances',
+      items: [
+        { to: '/admin/grievances', icon: LifeBuoy, label: 'Grievances' },
+        { to: '/admin/messages', icon: MessageSquare, label: 'Messages' },
+      ],
+    },
+    {
+      title: '9. Settings',
+      items: [
+        { to: '/admin/payments', icon: Wallet, label: 'Payment settings' },
+      ],
+    },
   ];
+  const items = sections.flatMap((s) => s.items);
 
   const handleGlobalSearch = async (e) => {
     if (e) e.preventDefault();
@@ -106,15 +158,22 @@ export function AdminLayout() {
             </div>
           </div>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
-          {items.map(({ to, end, icon: Icon, label }) => (
-            <NavLink key={to} to={to} end={end} data-testid={`admin-nav-${label.toLowerCase().replace(/[^a-z]/g, '-')}`}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${isActive ? 'bg-emerald-600 text-white font-medium' : 'text-stone-300 hover:bg-stone-800'}`
-              }
-            >
-              <Icon size={16} /> {label}
-            </NavLink>
+        <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
+          {sections.map((sec) => (
+            <div key={sec.title} className="space-y-1">
+              <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                {sec.title}
+              </div>
+              {sec.items.map(({ to, end, icon: Icon, label }) => (
+                <NavLink key={to} to={to} end={end} data-testid={`admin-nav-${label.toLowerCase().replace(/[^a-z]/g, '-')}`}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-1.5 rounded-lg text-xs transition-colors ${isActive ? 'bg-emerald-600 text-white font-medium' : 'text-stone-300 hover:bg-stone-800'}`
+                  }
+                >
+                  <Icon size={14} /> {label}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="p-3 border-t border-stone-800 space-y-1">
@@ -403,27 +462,42 @@ export function AdminLayout() {
 export function AdminOverview() {
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
+  const [execData, setExecData] = useState(null);
+  const [revData, setRevData] = useState(null);
   useEffect(() => {
     api.get('/admin/stats').then(r => setStats(r.data)).catch(() => {});
+    api.get('/admin/executive/dashboard').then(r => setExecData(r.data)).catch(() => {});
+    api.get('/admin/revenue/overview').then(r => setRevData(r.data)).catch(() => {});
   }, []);
 
   const cards = stats ? [
-    { label: 'Smart AI Features', value: '45 Active', icon: Cpu, tint: 'bg-emerald-50 text-emerald-800', sub: '3 Tiers · Master Switch ON', link: '/admin/smart-features' },
-    { label: 'Consumers', value: stats.consumer_count, icon: Users, tint: 'bg-emerald-50 text-emerald-800' },
-    { label: 'Vendors', value: stats.vendor_count, icon: Store, tint: 'bg-amber-50 text-amber-800', sub: `${stats.verified_vendor_count} verified · ${stats.pro_vendor_count} Pro` },
-    { label: 'Products', value: stats.product_count, icon: Package, tint: 'bg-blue-50 text-blue-800', sub: `${stats.in_stock_product_count} in stock` },
-    { label: 'Reviews', value: stats.review_count, icon: Star, tint: 'bg-yellow-50 text-yellow-800' },
-    { label: 'Messages', value: stats.message_count, icon: MessageSquare, tint: 'bg-violet-50 text-violet-800' },
-    { label: '"I need" requests', value: stats.request_count, icon: Megaphone, tint: 'bg-rose-50 text-rose-800', sub: `${stats.open_request_count} open` },
-    { label: 'Orders', value: stats.order_count, icon: CreditCard, tint: 'bg-teal-50 text-teal-800', sub: `${stats.paid_order_count} paid` },
-    { label: 'Online carts', value: stats.online_cart_count, icon: Store, tint: 'bg-orange-50 text-orange-800' },
+    { label: 'Consumers (Free Forever)', value: stats.consumer_count, icon: Users, tint: 'bg-emerald-50 text-emerald-800', sub: 'Registered neighbourhood shoppers', link: '/admin/consumers' },
+    { label: 'Retailers & Cart Vendors', value: stats.vendor_count, icon: Store, tint: 'bg-amber-50 text-amber-800', sub: `${stats.verified_vendor_count} verified · ${stats.pro_vendor_count} Pro · ${stats.online_cart_count || 0} live carts`, link: '/admin/vendors' },
+    { label: 'Active Products & Freshness', value: stats.product_count, icon: Package, tint: 'bg-blue-50 text-blue-800', sub: `${stats.in_stock_product_count} in stock · ${execData?.marketplace_health?.fresh_inventory_pct ?? 100}% fresh`, link: '/admin/inventory-trust' },
+    { label: 'MRR & Subscriptions', value: `₹${revData?.mrr_inr ?? execData?.revenue?.mrr_inr ?? 0}`, icon: Wallet, tint: 'bg-teal-50 text-teal-800', sub: `${revData?.active_paid_subscriptions ?? stats.pro_vendor_count ?? 0} paid Pro · ${revData?.active_trials ?? 0} on 30-day trial`, link: '/admin/revenue-center' },
+    { label: 'In-App & Subscription Orders', value: stats.order_count, icon: CreditCard, tint: 'bg-indigo-50 text-indigo-800', sub: `${stats.paid_order_count} paid subscription orders · ${execData?.gmv?.completed_orders_count ?? 0} completed consumer orders`, link: '/admin/orders' },
+    { label: '"I need" Customer Requests', value: stats.request_count, icon: Megaphone, tint: 'bg-rose-50 text-rose-800', sub: `${stats.open_request_count} open nearby requests`, link: '/admin/requests' },
+    { label: 'Reviews & Messages', value: (stats.review_count || 0) + (stats.message_count || 0), icon: MessageSquare, tint: 'bg-violet-50 text-violet-800', sub: `${stats.review_count} reviews · ${stats.message_count} messages`, link: '/admin/reviews' },
+    { label: 'Smart AI Ecosystem', value: '45 Active', icon: Cpu, tint: 'bg-emerald-50 text-emerald-800', sub: '3 Tiers · Pro Entitlement Guarded', link: '/admin/smart-features' },
   ] : [];
 
   return (
     <div>
-      <h1 className="font-display text-2xl md:text-3xl font-semibold text-stone-900">Overview</h1>
-      <p className="text-stone-600 text-sm mt-1">Health of the LocalPrice marketplace at a glance.</p>
-      <div className="mt-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl md:text-3xl font-semibold text-stone-900">1. Marketplace & SaaS Overview</h1>
+          <p className="text-stone-600 text-sm mt-1">Real-time database telemetry across Consumers, Retailers, Mobile Cart Vendors, Subscriptions, and Orders.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => navigate('/admin/commerce-os')} className="rounded-full text-xs">
+            Executive Command Center →
+          </Button>
+          <Button size="sm" onClick={() => navigate('/admin/revenue-center')} className="rounded-full text-xs bg-[#0A6E3B] hover:bg-[#075030] text-white">
+            Subscriptions & Revenue →
+          </Button>
+        </div>
+      </div>
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map((c) => (
           <div key={c.label} onClick={() => c.link && navigate(c.link)} className={`rounded-2xl bg-white border border-stone-200 p-5 ${c.link ? 'cursor-pointer hover:border-emerald-500 hover:shadow-sm transition-all' : ''}`}>
             <div className="flex items-center justify-between">
@@ -431,7 +505,7 @@ export function AdminOverview() {
               <div className={`w-8 h-8 rounded-lg grid place-items-center ${c.tint}`}><c.icon size={15} /></div>
             </div>
             <div className="font-display text-3xl font-semibold text-stone-900 mt-2">{c.value}</div>
-            {c.sub && <div className="text-xs text-stone-500 mt-0.5">{c.sub}</div>}
+            {c.sub && <div className="text-xs text-stone-500 mt-1">{c.sub}</div>}
           </div>
         ))}
       </div>

@@ -36,6 +36,7 @@ import AdminSmartFeatures from '@/pages/admin/AdminSmartFeatures';
 import AdminAIPlayground from '@/pages/admin/AdminAIPlayground';
 import AdminVoiceInventory from '@/pages/admin/AdminVoiceInventory';
 import AdminAIControlCenter from '@/pages/admin/AdminAIControlCenter';
+import AdminCommerceOS from '@/pages/admin/AdminCommerceOS';
 import GrievancesPage from '@/pages/GrievancesPage';
 import GrievanceDetailPage from '@/pages/GrievanceDetailPage';
 import AIAssistant from '@/components/AIAssistant';
@@ -108,6 +109,12 @@ function App() {
             <Route path="/admin/login" element={<><AdminLogin /><Toaster position="top-right" richColors /></>} />
             <Route path="/admin" element={<AdminRouteLayout />}>
               <Route index element={<AdminOverview />} />
+              <Route path="commerce-os" element={<AdminCommerceOS defaultTab="executive" />} />
+              <Route path="revenue-center" element={<AdminCommerceOS defaultTab="revenue" />} />
+              <Route path="inventory-trust" element={<AdminCommerceOS defaultTab="inventory" />} />
+              <Route path="growth-ops" element={<AdminCommerceOS defaultTab="growth" />} />
+              <Route path="campaigns" element={<AdminCommerceOS defaultTab="campaigns" />} />
+              <Route path="risk-governance" element={<AdminCommerceOS defaultTab="governance" />} />
               <Route path="ai-control-center" element={<AdminAIControlCenter />} />
               <Route path="ai-knowledge" element={<AdminAIControlCenter defaultTab="knowledge" />} />
               <Route path="voice-inventory" element={<AdminVoiceInventory />} />

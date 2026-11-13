@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { useLang } from '@/lib/lang';
 import { LANDING, SEARCH } from '@/constants/testIds';
 import { ProductCard, VendorCard } from '@/components/cards';
 import { Button } from '@/components/ui/button';
-import { Search, Megaphone, Map, Star, ArrowRight } from 'lucide-react';
+import { toast } from 'sonner';
+import { Search, Megaphone, Map, Star, ArrowRight, Mic, MicOff } from 'lucide-react';
 
 export default function HomePage() {
   const { t, lang, localizeName, localizeUnit } = useLang();
@@ -19,6 +20,8 @@ export default function HomePage() {
   };
   const navigate = useNavigate();
   const [q, setQ] = useState('');
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef(null);
   const [stats, setStats] = useState(null);
   const [categories, setCategories] = useState([]);
   const [todayPrices, setTodayPrices] = useState([]);
@@ -43,6 +46,47 @@ export default function HomePage() {
 
   const onSearch = (e) => { e.preventDefault(); navigate(`/search?q=${encodeURIComponent(q)}`); };
 
+  const toggleVoiceSearch = () => {
+    if (listening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setListening(false);
+      return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error('Voice search is not supported in this browser. Try Chrome or Edge.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = lang === 'hi' ? 'hi-IN' : 'en-IN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognitionRef.current = recognition;
+
+    recognition.onstart = () => {
+      setListening(true);
+      toast.info('Listening… speak the product name');
+    };
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript?.trim() || '';
+      if (transcript) {
+        setQ(transcript);
+        toast.success(`Searching for "${transcript}"`);
+        navigate(`/search?q=${encodeURIComponent(transcript)}`);
+      }
+    };
+    recognition.onerror = (event) => {
+      setListening(false);
+      if (event.error !== 'aborted') {
+        toast.error(event.error === 'not-allowed' ? 'Microphone permission denied.' : 'Could not hear clearly. Please try again.');
+      }
+    };
+    recognition.onend = () => {
+      setListening(false);
+    };
+    recognition.start();
+  };
+
   return (
     <div className="pb-24 md:pb-8">
       {/* HERO */}
@@ -56,17 +100,31 @@ export default function HomePage() {
               <h1 className="font-display text-3xl md:text-5xl font-semibold mt-2 leading-[1.05]">LocalPrice</h1>
               <p className="text-emerald-50/90 mt-2 text-sm md:text-base">{t('tagline')}</p>
 
-              <form onSubmit={onSearch} className="mt-6 flex bg-white rounded-full p-1.5 shadow-lg">
-                <div className="flex items-center gap-2 px-4 flex-1">
+              <form onSubmit={onSearch} className="mt-6 flex items-center gap-1.5 bg-white rounded-full p-1.5 shadow-lg">
+                <div className="flex items-center gap-2 px-4 flex-1 min-w-0">
                   <Search size={18} className="text-stone-500 shrink-0" />
                   <input
                     data-testid={LANDING.searchInput}
                     value={q} onChange={(e) => setQ(e.target.value)}
-                    placeholder={t('searchPlaceholder')}
+                    placeholder={listening ? 'Listening… speak now' : t('searchPlaceholder')}
                     className="w-full outline-none bg-transparent py-2.5 text-sm md:text-base text-stone-900 placeholder:text-stone-400"
                   />
                 </div>
-                <Button data-testid={LANDING.searchButton} type="submit" className="rounded-full bg-amber-500 hover:bg-amber-600 text-white h-11 px-6">
+                <Button
+                  type="button"
+                  onClick={toggleVoiceSearch}
+                  data-testid="landing-voice-search-btn"
+                  title={listening ? 'Stop listening' : 'Voice search'}
+                  aria-label={listening ? 'Stop voice search' : 'Voice search'}
+                  className={`rounded-full h-11 w-11 p-0 shrink-0 transition-all ${
+                    listening
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse'
+                      : 'bg-emerald-50 hover:bg-emerald-100 text-[#0A6E3B] border border-emerald-200'
+                  }`}
+                >
+                  {listening ? <MicOff size={18} /> : <Mic size={18} />}
+                </Button>
+                <Button data-testid={LANDING.searchButton} type="submit" className="rounded-full bg-amber-500 hover:bg-amber-600 text-white h-11 px-6 shrink-0">
                   <Search size={16} />
                 </Button>
               </form>
@@ -85,24 +143,45 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* QUICK ACTIONS */}
-      <section className="max-w-7xl mx-auto px-5 md:px-8 mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Link to="/i-need" className="rounded-2xl border-l-4 border-amber-500 bg-amber-50/60 hover:bg-amber-50 border-y border-r border-amber-100 p-5 transition-colors flex items-center gap-4 group">
-          <div className="w-11 h-11 rounded-xl bg-amber-500 grid place-items-center text-white shrink-0"><Megaphone size={20} /></div>
-          <div>
-            <div className="font-display text-lg font-semibold text-stone-900">{t('tellSellers')}</div>
-            <div className="text-xs text-stone-600 mt-0.5">{t('tellSellersDesc')}</div>
-          </div>
-          <ArrowRight size={18} className="ml-auto text-amber-700 opacity-0 group-hover:opacity-100 transition-opacity" />
-        </Link>
-        <Link to="/map" className="rounded-2xl border-l-4 border-emerald-500 bg-emerald-50/60 hover:bg-emerald-50 border-y border-r border-emerald-100 p-5 transition-colors flex items-center gap-4 group">
-          <div className="w-11 h-11 rounded-xl bg-emerald-600 grid place-items-center text-white shrink-0"><Map size={20} /></div>
-          <div>
-            <div className="font-display text-lg font-semibold text-stone-900">{t('seeMap')}</div>
-            <div className="text-xs text-stone-600 mt-0.5">{t('seeMapDesc')}</div>
-          </div>
-          <ArrowRight size={18} className="ml-auto text-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity" />
-        </Link>
+      {/* QUICK ACTIONS & CONSUMER SHORTCUTS (100% Free) */}
+      <section className="max-w-7xl mx-auto px-5 md:px-8 mt-6 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Link to="/i-need" className="rounded-2xl border-l-4 border-amber-500 bg-amber-50/60 hover:bg-amber-50 border-y border-r border-amber-100 p-5 transition-colors flex items-center gap-4 group">
+            <div className="w-11 h-11 rounded-xl bg-amber-500 grid place-items-center text-white shrink-0"><Megaphone size={20} /></div>
+            <div>
+              <div className="font-display text-lg font-semibold text-stone-900">{t('tellSellers')}</div>
+              <div className="text-xs text-stone-600 mt-0.5">{t('tellSellersDesc')}</div>
+            </div>
+            <ArrowRight size={18} className="ml-auto text-amber-700 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </Link>
+          <Link to="/map" className="rounded-2xl border-l-4 border-emerald-500 bg-emerald-50/60 hover:bg-emerald-50 border-y border-r border-emerald-100 p-5 transition-colors flex items-center gap-4 group">
+            <div className="w-11 h-11 rounded-xl bg-emerald-600 grid place-items-center text-white shrink-0"><Map size={20} /></div>
+            <div>
+              <div className="font-display text-lg font-semibold text-stone-900">{t('seeMap')}</div>
+              <div className="text-xs text-stone-600 mt-0.5">{t('seeMapDesc')}</div>
+            </div>
+            <ArrowRight size={18} className="ml-auto text-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </Link>
+        </div>
+
+        {/* Fast Everyday Consumer Pills */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link to="/search?sort=price_asc" className="px-3.5 py-2 rounded-full bg-white border border-stone-200 hover:border-[#0A6E3B] text-xs font-medium text-stone-800 shadow-xs">
+            💰 Compare Lowest Local Prices
+          </Link>
+          <Link to="/map" className="px-3.5 py-2 rounded-full bg-white border border-stone-200 hover:border-[#0A6E3B] text-xs font-medium text-stone-800 shadow-xs">
+            🛒 Live Mobile Carts ({vendors.filter((v) => v.vendor_type === 'cart_vendor').length})
+          </Link>
+          <Link to="/saved" className="px-3.5 py-2 rounded-full bg-white border border-stone-200 hover:border-[#0A6E3B] text-xs font-medium text-stone-800 shadow-xs">
+            🔖 Saved Products & Alerts
+          </Link>
+          <Link to="/orders" className="px-3.5 py-2 rounded-full bg-white border border-stone-200 hover:border-[#0A6E3B] text-xs font-medium text-stone-800 shadow-xs">
+            📦 My Orders
+          </Link>
+          <Link to="/messages" className="px-3.5 py-2 rounded-full bg-white border border-stone-200 hover:border-[#0A6E3B] text-xs font-medium text-stone-800 shadow-xs">
+            💬 Seller Messages
+          </Link>
+        </div>
       </section>
 
       {/* CATEGORIES */}
@@ -152,15 +231,35 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* VENDORS NEAR YOU */}
-      <section className="max-w-7xl mx-auto px-5 md:px-8 mt-10">
-        <div className="flex items-end justify-between">
-          <h2 className="font-display text-xl md:text-2xl font-semibold text-stone-900">{t('vendorsNearYou')}</h2>
-          <Link to="/map" className="text-sm text-[#0A6E3B] hover:underline">Open map</Link>
+      {/* NEARBY RETAILERS & MOBILE CARTS */}
+      <section className="max-w-7xl mx-auto px-5 md:px-8 mt-10 space-y-8">
+        <div>
+          <div className="flex items-end justify-between">
+            <div>
+              <h2 className="font-display text-xl md:text-2xl font-semibold text-stone-900">Nearby Retailers & Shops</h2>
+              <p className="text-xs text-stone-500 mt-0.5">Verified neighborhood kirana, dairy, fruit & vegetable stores</p>
+            </div>
+            <Link to="/map" className="text-sm text-[#0A6E3B] hover:underline">Open map</Link>
+          </div>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {vendors.filter((v) => v.vendor_type !== 'cart_vendor').slice(0, 4).map((v) => <VendorCard key={v.id} vendor={v} />)}
+          </div>
         </div>
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {vendors.map((v) => <VendorCard key={v.id} vendor={v} />)}
-        </div>
+
+        {vendors.some((v) => v.vendor_type === 'cart_vendor') && (
+          <div>
+            <div className="flex items-end justify-between">
+              <div>
+                <h2 className="font-display text-xl md:text-2xl font-semibold text-stone-900">Nearby Mobile Carts (Live)</h2>
+                <p className="text-xs text-stone-500 mt-0.5">Street carts & mobile vendors selling fresh produce near your lane</p>
+              </div>
+              <Link to="/map" className="text-sm text-[#0A6E3B] hover:underline">Track on map</Link>
+            </div>
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {vendors.filter((v) => v.vendor_type === 'cart_vendor').slice(0, 4).map((v) => <VendorCard key={v.id} vendor={v} />)}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* DISCLAIMER */}

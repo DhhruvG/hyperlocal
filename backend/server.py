@@ -35,8 +35,8 @@ RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID', 'rzp_test_placeholder')
 RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET', 'placeholder_secret')
 RAZORPAY_MODE = os.environ.get('RAZORPAY_MODE', 'mock')
 
-# Admin allow-list — hard-coded single super admin
-ADMIN_ALLOWED_EMAILS = {"dgstartup2026@gmail.com"}
+# Admin allow-list — supports primary super admin + localprice demo admin
+ADMIN_ALLOWED_EMAILS = {"dgstartup2026@gmail.com", "admin@localprice.in", "admin@hyperlocal.com"}
 ADMIN_SEED_EMAIL = "dgstartup2026@gmail.com"
 ADMIN_SEED_PASSWORD = "Dgadmin@startup2026"
 ADMIN_SEED_NAME = "Dhhruv Gupta"
@@ -174,31 +174,110 @@ def format_distance(km):
 
 
 def compute_trial_status(user: dict) -> dict:
-    if user.get("role") != "vendor":
-        return {"is_pro": False, "trial_active": False, "days_left": 0, "product_limit": 0}
+    role = user.get("role")
+    if role != "vendor":
+        return {
+            "is_pro": False,
+            "trial_active": False,
+            "days_left": 0,
+            "product_limit": None,
+            "free_product_cap": None,
+            "entitlement_tier": "CONSUMER_FREE" if role == "consumer" else "ADMIN",
+            "entitlements": {
+                "all_consumer_features": True,
+                "consumer_paywall": False,
+            },
+        }
+    vendor_type = user.get("vendor_type") or "retailer"
+    free_cap = 20 if vendor_type == "cart_vendor" else 30
+
     is_pro = bool(user.get("is_pro"))
     pro_expires_at = user.get("pro_expires_at")
     if is_pro and pro_expires_at:
         try:
-            exp = datetime.fromisoformat(pro_expires_at)
+            exp = datetime.fromisoformat(str(pro_expires_at).replace("Z", "+00:00"))
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
             if exp < datetime.now(timezone.utc):
                 is_pro = False
         except Exception:
             pass
+
     trial_start = user.get("trial_started_at")
     days_left = 0
     trial_active = False
+    trial_ends_at = None
     if trial_start:
         try:
-            ts = datetime.fromisoformat(trial_start)
+            ts = datetime.fromisoformat(str(trial_start).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            trial_end_dt = ts + timedelta(days=30)
+            trial_ends_at = trial_end_dt.isoformat()
             elapsed = (datetime.now(timezone.utc) - ts).days
             days_left = max(0, 30 - elapsed)
             trial_active = days_left > 0
         except Exception:
             pass
-    product_limit = None if (is_pro or trial_active) else 15
-    return {"is_pro": is_pro, "trial_active": trial_active, "days_left": days_left,
-            "product_limit": product_limit, "pro_expires_at": pro_expires_at}
+
+    has_pro_access = bool(is_pro or trial_active or user.get("admin_pro_override"))
+    product_limit = None if has_pro_access else free_cap
+    entitlement_tier = "PRO" if is_pro else ("PRO_TRIAL" if trial_active else "FREE")
+
+    entitlements = {
+        # Permanently Free for both Retailers & Mobile Cart Vendors
+        "shop_registration_and_profile": True,
+        "map_visibility": True,
+        "live_location_sharing": True,
+        "start_stop_selling": True,
+        "product_updates": True,
+        "price_updates": True,
+        "stock_updates": True,
+        "basic_voice_product_entry": True,
+        "customer_messages": True,
+        "customer_requests": True,
+        "order_management": True,
+        "basic_dashboard_stats": True,
+        "basic_notifications": True,
+        "support_and_settings": True,
+        # Pro / Trial Unlocked Capabilities
+        "unlimited_products": has_pro_access,
+        "advanced_analytics": has_pro_access,
+        "demand_forecasting": has_pro_access,
+        "advanced_ai_assistant": has_pro_access,
+        "stockout_intelligence": has_pro_access,
+        "competitor_pricing_intelligence": has_pro_access,
+        "customer_retention_crm": has_pro_access,
+        "advanced_promotions": has_pro_access,
+        "multi_branch_management": bool(has_pro_access and vendor_type != "cart_vendor"),
+        "ai_route_optimization": has_pro_access,
+        "demand_hotspot_predictions": has_pro_access,
+        "advanced_voice_automation": has_pro_access,
+    }
+
+    return {
+        "is_pro": is_pro,
+        "has_pro_access": has_pro_access,
+        "trial_active": trial_active,
+        "days_left": days_left,
+        "trial_ends_at": trial_ends_at,
+        "product_limit": product_limit,
+        "free_product_cap": free_cap,
+        "pro_expires_at": pro_expires_at,
+        "auto_renew": user.get("auto_renew", True),
+        "entitlement_tier": entitlement_tier,
+        "entitlements": entitlements,
+    }
+
+
+async def require_pro_vendor(user: dict = Depends(require_vendor)) -> dict:
+    status = compute_trial_status(user)
+    if not status.get("has_pro_access"):
+        raise HTTPException(
+            status_code=402,
+            detail="This advanced feature requires an active Pro plan or 30-day free trial. Upgrade in Growth or Subscription settings.",
+        )
+    return user
 
 
 def serialize_user(user: dict) -> dict:
@@ -357,13 +436,25 @@ class MessageSend(BaseModel):
 class RequestCreate(BaseModel):
     item: str
     quantity: Optional[str] = None
+    unit: Optional[str] = None
     category: Optional[str] = None
     note: Optional[str] = None
+    target_price: Optional[float] = None
+    required_by: Optional[str] = "today"
+    radius_km: Optional[float] = 3.0
+    fulfillment_preference: Optional[Literal["pickup", "delivery"]] = "pickup"
+    image_url: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 
 class RequestReplyCreate(BaseModel):
     price: float
     note: Optional[str] = None
+    product_id: Optional[str] = None
+    available_quantity: Optional[str] = None
+    pickup_time: Optional[str] = "Immediate"
+    offer_expiry: Optional[str] = "24 hours"
 
 
 # ---------- Auth ----------
@@ -477,8 +568,95 @@ async def update_vendor_profile(payload: VendorProfileUpdate, user: dict = Depen
 
 
 # ---------- Vendor: Products ----------
+COMMON_PRODUCT_TEMPLATES = [
+    {"name": "Tomato (टमाटर)", "name_en": "Tomato", "name_hi": "टमाटर", "name_hinglish": "Tamatar", "category": "vegetables", "unit": "kg", "suggested_price": 30},
+    {"name": "Potato (आलू)", "name_en": "Potato", "name_hi": "आलू", "name_hinglish": "Aloo", "category": "vegetables", "unit": "kg", "suggested_price": 25},
+    {"name": "Onion (प्याज़)", "name_en": "Onion", "name_hi": "प्याज़", "name_hinglish": "Pyaaz", "category": "vegetables", "unit": "kg", "suggested_price": 35},
+    {"name": "Green Chilli (हरी मिर्च)", "name_en": "Green Chilli", "name_hi": "हरी मिर्च", "name_hinglish": "Hari Mirch", "category": "vegetables", "unit": "kg", "suggested_price": 60},
+    {"name": "Ginger (अदरक)", "name_en": "Ginger", "name_hi": "अदरक", "name_hinglish": "Adrak", "category": "vegetables", "unit": "kg", "suggested_price": 120},
+    {"name": "Spinach (पालक)", "name_en": "Spinach", "name_hi": "पालक", "name_hinglish": "Palak", "category": "vegetables", "unit": "bundle", "suggested_price": 20},
+    {"name": "Banana (केला)", "name_en": "Banana", "name_hi": "केला", "name_hinglish": "Kela", "category": "fruits", "unit": "dozen", "suggested_price": 60},
+    {"name": "Apple (सेब)", "name_en": "Apple", "name_hi": "सेब", "name_hinglish": "Seb", "category": "fruits", "unit": "kg", "suggested_price": 140},
+    {"name": "Amul Taaza Milk", "name_en": "Amul Taaza Milk", "name_hi": "अमूल दूध", "name_hinglish": "Amul Doodh", "category": "dairy", "unit": "L", "suggested_price": 54},
+    {"name": "Fresh Paneer (पनीर)", "name_en": "Fresh Paneer", "name_hi": "पनीर", "name_hinglish": "Paneer", "category": "dairy", "unit": "kg", "suggested_price": 360},
+    {"name": "Curd / Dahi (दही)", "name_en": "Curd", "name_hi": "दही", "name_hinglish": "Dahi", "category": "dairy", "unit": "kg", "suggested_price": 80},
+    {"name": "Aashirvaad Atta 5kg", "name_en": "Aashirvaad Atta 5kg", "name_hi": "आशीर्वाद आटा 5kg", "name_hinglish": "Atta 5kg", "category": "groceries", "unit": "packet", "suggested_price": 245},
+    {"name": "Basmati Rice (बासमती चावल)", "name_en": "Basmati Rice", "name_hi": "बासमती चावल", "name_hinglish": "Basmati Chawal", "category": "groceries", "unit": "kg", "suggested_price": 90},
+    {"name": "Maggi Masala Noodles", "name_en": "Maggi Masala Noodles", "name_hi": "मैगी नूडल्स", "name_hinglish": "Maggi", "category": "groceries", "unit": "packet", "suggested_price": 14},
+    {"name": "Toor / Arhar Dal", "name_en": "Toor Dal", "name_hi": "अरहर दाल", "name_hinglish": "Arhar Dal", "category": "groceries", "unit": "kg", "suggested_price": 150},
+    {"name": "Mustard Oil 1L (सरसों तेल)", "name_en": "Mustard Oil 1L", "name_hi": "सरसों तेल", "name_hinglish": "Sarson Tel", "category": "groceries", "unit": "L", "suggested_price": 165},
+    {"name": "Sugar / Cheeni (चीनी)", "name_en": "Sugar", "name_hi": "चीनी", "name_hinglish": "Cheeni", "category": "groceries", "unit": "kg", "suggested_price": 45},
+    {"name": "White Bread", "name_en": "White Bread", "name_hi": "ब्रेड", "name_hinglish": "Bread", "category": "bakery", "unit": "packet", "suggested_price": 40},
+    {"name": "Parle-G Biscuits", "name_en": "Parle-G Biscuits", "name_hi": "पारले-जी बिस्कुट", "name_hinglish": "Parle-G", "category": "bakery", "unit": "packet", "suggested_price": 10},
+    {"name": "Surf Excel Detergent 1kg", "name_en": "Surf Excel Detergent 1kg", "name_hi": "सर्फ एक्सेल 1kg", "name_hinglish": "Surf Excel", "category": "household", "unit": "kg", "suggested_price": 135},
+]
+
+
+class SelectActiveProductsPayload(BaseModel):
+    active_product_ids: List[str]
+
+
+@api_router.get("/vendor/product-templates")
+async def get_product_templates(q: str = "", category: str = ""):
+    items = COMMON_PRODUCT_TEMPLATES
+    if category and category != "all":
+        items = [t for t in items if t["category"] == category.lower()]
+    if q.strip():
+        ql = q.strip().lower()
+        items = [
+            t for t in items
+            if ql in t["name"].lower() or ql in t["name_hinglish"].lower() or ql in t["category"].lower()
+        ]
+    return {"templates": items}
+
+
 async def get_active_product_count(vendor_id: str) -> int:
-    return await db.products.count_documents({"vendor_id": vendor_id})
+    return await db.products.count_documents({
+        "vendor_id": vendor_id,
+        "in_stock": {"$ne": False},
+        "listing_status": {"$nin": ["draft", "paused_by_cap"]},
+    })
+
+
+@api_router.post("/vendor/products/select-active")
+async def select_active_products_under_cap(payload: SelectActiveProductsPayload, user: dict = Depends(require_vendor)):
+    """
+    Non-destructive active listing selector for Free tier vendors whose product count exceeds
+    their free cap (30 for Retailers, 20 for Mobile Cart Vendors). Never deletes any product.
+    """
+    status = compute_trial_status(user)
+    cap = status.get("free_product_cap") or (20 if user.get("vendor_type") == "cart_vendor" else 30)
+    selected_ids = list(dict.fromkeys(payload.active_product_ids or []))
+    if not status.get("has_pro_access") and len(selected_ids) > cap:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Your Free plan supports up to {cap} active listings. Please select at most {cap} products or upgrade to Pro.",
+        )
+    all_prods = await db.products.find({"vendor_id": user["id"]}).to_list(1000)
+    now_s = datetime.now(timezone.utc).isoformat()
+    activated = 0
+    paused = 0
+    for p in all_prods:
+        pid = str(p["_id"])
+        if pid in selected_ids:
+            await db.products.update_one(
+                {"_id": p["_id"]},
+                {"$set": {"in_stock": True, "listing_status": "active", "updated_at": now_s}},
+            )
+            activated += 1
+        else:
+            await db.products.update_one(
+                {"_id": p["_id"]},
+                {"$set": {"in_stock": False, "listing_status": "paused_by_cap", "updated_at": now_s}},
+            )
+            paused += 1
+    await refresh_vendor_stats(user["id"])
+    return {
+        "ok": True,
+        "activated_count": activated,
+        "paused_count": paused,
+        "message": f"{activated} products kept active in search; {paused} products safely paused (zero data deleted).",
+    }
 
 
 @api_router.get("/vendor/products")
@@ -487,6 +665,7 @@ async def list_vendor_products(user: dict = Depends(require_vendor)):
     for d in docs:
         d["id"] = str(d["_id"])
         d.pop("_id", None)
+        d.update(compute_inventory_trust_sync(d, user))
     return docs
 
 
@@ -530,6 +709,14 @@ async def update_product(product_id: str, payload: ProductUpdate, user: dict = D
     old_in_stock = bool(prod.get("in_stock", False))
     status = compute_trial_status(user)
     update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if update.get("in_stock") is True and not old_in_stock and status["product_limit"] is not None:
+        active_cnt = await get_active_product_count(user["id"])
+        if active_cnt >= status["product_limit"]:
+            raise HTTPException(
+                status_code=402,
+                detail=f"You already have {active_cnt} active products (Free limit: {status['product_limit']}). Pause another product first or upgrade to Pro.",
+            )
+        update["listing_status"] = "active"
     if "is_featured" in update and not status["is_pro"]:
         update.pop("is_featured")
     if "name" in update:
@@ -628,10 +815,15 @@ async def mark_all_notifications_read(user: dict = Depends(get_current_user)):
 
 
 # ---------- Consumer: Search & Discovery ----------
+from commerce_os_engine import compute_inventory_trust_sync, emit_domain_event
+
+
 def enrich_product(p: dict, ref_lat=None, ref_lng=None):
     dist = haversine_km(ref_lat, ref_lng, p.get("vendor_lat"), p.get("vendor_lng"))
     p["distance_km"] = dist
     p["distance_label"] = format_distance(dist)
+    trust = compute_inventory_trust_sync(p)
+    p.update(trust)
     return p
 
 
@@ -641,14 +833,14 @@ async def search_products(
     city: str = Query("Dehradun"),
     category: Optional[str] = Query(None),
     in_stock_only: bool = Query(False),
-    sort: Literal["price_asc", "price_desc", "distance", "latest"] = Query("price_asc"),
+    sort: Literal["price_asc", "price_desc", "distance", "latest", "confidence"] = Query("price_asc"),
     lat: Optional[float] = Query(None),
     lng: Optional[float] = Query(None),
 ):
     query = {
         "vendor_city": city,
         "moderation_status": {"$nin": ["rejected", "suspended", "pending_review"]},
-        "listing_status": {"$ne": "draft"},
+        "listing_status": {"$nin": ["draft", "paused_by_cap"]},
     }
     if q.strip():
         import re as _re
@@ -680,18 +872,29 @@ async def search_products(
         enrich_product(d, ref_lat, ref_lng)
 
     def sort_key(x):
-        priority = (0 if x.get("is_featured") else 1, 0 if x.get("vendor_is_pro") else 1)
+        # Point 2: Do not automatically rank stale cheap inventory above recently confirmed inventory
+        stale_penalty = 1 if x.get("inventory_freshness_state") == "POSSIBLY_STALE" else 0
+        priority = (0 if x.get("is_featured") else 1, 0 if x.get("vendor_is_pro") else 1, stale_penalty)
         if sort == "price_asc":
-            return (*priority, x.get("price", 0))
+            return (*priority, x.get("price", 0), -x.get("inventory_confidence_score", 50))
         if sort == "price_desc":
             return (*priority, -x.get("price", 0))
         if sort == "distance":
-            return (*priority, x.get("distance_km") or 999)
+            return (*priority, x.get("distance_km") or 999, -x.get("inventory_confidence_score", 50))
+        if sort == "confidence":
+            return (-x.get("inventory_confidence_score", 0), x.get("price", 0))
         return (*priority, -datetime.fromisoformat(x["updated_at"]).timestamp() if x.get("updated_at") else 0)
 
     docs.sort(key=sort_key)
     if docs:
         await db.products.update_many({"_id": {"$in": [ObjectId(d["id"]) for d in docs[:30]]}}, {"$inc": {"views": 1}})
+    if q.strip():
+        await emit_domain_event(
+            db,
+            event_type="PRODUCT_SEARCHED",
+            locality=city,
+            payload={"query": q.strip(), "category": category, "results_count": len(docs)},
+        )
     return docs
 
 
@@ -700,7 +903,7 @@ async def popular_near_you(lat: Optional[float] = None, lng: Optional[float] = N
     docs = await db.products.find({
         "in_stock": True,
         "moderation_status": {"$nin": ["rejected", "suspended", "pending_review"]},
-        "listing_status": {"$ne": "draft"},
+        "listing_status": {"$nin": ["draft", "paused_by_cap"]},
     }).sort("views", -1).limit(limit * 2).to_list(50)
     ref_lat = lat if lat is not None else DEFAULT_LAT
     ref_lng = lng if lng is not None else DEFAULT_LNG
@@ -718,7 +921,7 @@ async def today_prices(limit: int = 10):
         {"$match": {
             "in_stock": True,
             "moderation_status": {"$nin": ["rejected", "suspended", "pending_review"]},
-            "listing_status": {"$ne": "draft"},
+            "listing_status": {"$nin": ["draft", "paused_by_cap"]},
         }},
         {"$sort": {"price": 1}},
         {"$group": {
@@ -776,11 +979,17 @@ async def vendor_detail(vendor_id: str, lat: Optional[float] = None, lng: Option
     products = await db.products.find({"vendor_id": vendor_id}).to_list(500)
     for p in products:
         p["id"] = str(p["_id"]); p.pop("_id", None)
+        p.update(compute_inventory_trust_sync(p, u))
     reviews = await db.reviews.find({"vendor_id": vendor_id}).sort("created_at", -1).to_list(50)
     for r in reviews:
         r["id"] = str(r["_id"]); r.pop("_id", None)
-    return {"vendor": serialize_vendor_public(u, lat or DEFAULT_LAT, lng or DEFAULT_LNG),
-            "products": products, "reviews": reviews}
+    from commerce_os_engine import compute_merchant_reliability
+    rel = await compute_merchant_reliability(db, u)
+    v_pub = serialize_vendor_public(u, lat or DEFAULT_LAT, lng or DEFAULT_LNG)
+    v_pub["reliability_score"] = rel["reliability_score"]
+    v_pub["reliability_label"] = rel["consumer_label"]
+    v_pub["reliability"] = rel
+    return {"vendor": v_pub, "products": products, "reviews": reviews}
 
 
 @api_router.post("/products/{product_id}/click")
@@ -944,15 +1153,34 @@ async def get_thread(other_id: str, user: dict = Depends(get_current_user)):
 # ---------- I need (Requests) ----------
 @api_router.post("/requests")
 async def create_request(payload: RequestCreate, user: dict = Depends(require_consumer)):
+    now_s = datetime.now(timezone.utc).isoformat()
     doc = {
         "consumer_id": user["id"], "consumer_name": user.get("name"),
         "item": payload.item, "item_lower": payload.item.lower(),
-        "quantity": payload.quantity, "category": payload.category,
-        "note": payload.note, "status": "open",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "quantity": payload.quantity, "unit": payload.unit,
+        "category": payload.category,
+        "note": payload.note,
+        "target_price": payload.target_price,
+        "required_by": payload.required_by or "today",
+        "radius_km": payload.radius_km or 3.0,
+        "fulfillment_preference": payload.fulfillment_preference or "pickup",
+        "image_url": payload.image_url,
+        "lat": payload.lat or user.get("lat") or DEFAULT_LAT,
+        "lng": payload.lng or user.get("lng") or DEFAULT_LNG,
+        "status": "open",
+        "lifecycle_state": "OPEN",
+        "created_at": now_s,
     }
     res = await db.requests.insert_one(doc)
     doc["id"] = str(res.inserted_id); doc.pop("_id", None)
+    await emit_domain_event(
+        db,
+        event_type="REQUEST_CREATED",
+        actor_id=user["id"],
+        actor_role="consumer",
+        request_id=doc["id"],
+        payload={"item": payload.item, "category": payload.category, "target_price": payload.target_price},
+    )
     return doc
 
 
@@ -967,10 +1195,14 @@ async def my_requests(user: dict = Depends(require_consumer)):
 
 @api_router.get("/requests/open")
 async def open_requests(user: dict = Depends(require_vendor)):
-    docs = await db.requests.find({"status": "open"}).sort("created_at", -1).limit(50).to_list(50)
+    docs = await db.requests.find({"status": {"$in": ["open", "OPEN", "RESPONDED"]}}).sort("created_at", -1).limit(50).to_list(50)
     for d in docs:
         d["id"] = str(d["_id"]); d.pop("_id", None)
+        # Protect consumer PII before direct interaction
+        d.pop("consumer_phone", None)
+        d.pop("consumer_email", None)
         d["replied_by_me"] = bool(await db.request_replies.find_one({"request_id": d["id"], "vendor_id": user["id"]}))
+        d["reply_count"] = await db.request_replies.count_documents({"request_id": d["id"]})
     return docs
 
 
@@ -987,17 +1219,36 @@ async def reply_request(request_id: str, payload: RequestReplyCreate, user: dict
     req = await db.requests.find_one({"_id": ObjectId(request_id)})
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
+    now_s = datetime.now(timezone.utc).isoformat()
     doc = {
         "request_id": request_id, "vendor_id": user["id"],
         "vendor_shop": user.get("shop_name"), "vendor_verified": user.get("is_verified", False),
         "price": float(payload.price), "note": payload.note,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "product_id": payload.product_id,
+        "available_quantity": payload.available_quantity or req.get("quantity"),
+        "pickup_time": payload.pickup_time or "Immediate",
+        "offer_expiry": payload.offer_expiry or "24 hours",
+        "status": "OFFER_SENT",
+        "created_at": now_s,
     }
     existing = await db.request_replies.find_one({"request_id": request_id, "vendor_id": user["id"]})
     if existing:
         await db.request_replies.update_one({"_id": existing["_id"]}, {"$set": doc})
     else:
         await db.request_replies.insert_one(doc)
+    await db.requests.update_one(
+        {"_id": ObjectId(request_id)},
+        {"$set": {"lifecycle_state": "RESPONDED", "last_reply_at": now_s}},
+    )
+    await emit_domain_event(
+        db,
+        event_type="REQUEST_RESPONDED",
+        actor_id=user["id"],
+        actor_role="vendor",
+        seller_id=user["id"],
+        request_id=request_id,
+        payload={"price": float(payload.price), "pickup_time": payload.pickup_time},
+    )
     return {"ok": True}
 
 
@@ -1005,12 +1256,12 @@ async def reply_request(request_id: str, payload: RequestReplyCreate, user: dict
 # Tiered pricing by vendor type — amount is in paise
 PLANS_BY_TIER = {
     "cart_vendor": {
-        "weekly":  {"amount": 1500, "compare_amount": 2100, "label": "Cart Pro Weekly", "days": 7},
-        "monthly": {"amount": 4900, "compare_amount": 6900, "label": "Cart Pro Monthly", "days": 30},
-        "yearly":  {"amount": 49900, "compare_amount": 82800, "label": "Cart Pro Yearly", "days": 365},
+        "weekly":  {"amount": 2500, "compare_amount": 3500, "label": "Cart Pro Weekly", "days": 7, "configurable": True},
+        "monthly": {"amount": 9900, "compare_amount": 14900, "label": "Cart Pro Monthly", "days": 30},
+        "yearly":  {"amount": 79900, "compare_amount": 118800, "label": "Cart Pro Yearly", "days": 365},
     },
     "retailer": {
-        "monthly": {"amount": 14900, "compare_amount": 19900, "label": "Retail Pro Monthly", "days": 30},
+        "monthly": {"amount": 19900, "compare_amount": 24900, "label": "Retail Pro Monthly", "days": 30},
         "yearly":  {"amount": 149900, "compare_amount": 238800, "label": "Retail Pro Yearly", "days": 365},
     },
 }
@@ -1178,6 +1429,11 @@ async def verify_payment(payload: VerifyPaymentPayload, user: dict = Depends(req
     order_record = await db.orders.find_one({"order_id": payload.razorpay_order_id, "user_id": user["id"]})
     if not order_record:
         raise HTTPException(status_code=404, detail="Order not found")
+    # Idempotency check: if already paid, return existing state without re-extending expiry
+    if order_record.get("status") == "paid":
+        fresh_user = await db.users.find_one({"_id": ObjectId(user["id"])})
+        fresh_user["id"] = str(fresh_user["_id"])
+        return {"ok": True, "idempotent": True, "user": serialize_user(fresh_user)}
     verified = False
     if client and payload.razorpay_signature:
         try:
@@ -1197,11 +1453,21 @@ async def verify_payment(payload: VerifyPaymentPayload, user: dict = Depends(req
     expires_at = now + timedelta(days=plan["days"])
     await db.users.update_one({"_id": ObjectId(user["id"])},
         {"$set": {"is_pro": True, "subscription_plan": payload.plan,
-                  "pro_expires_at": expires_at.isoformat(),
+                  "pro_expires_at": expires_at.isoformat(), "auto_renew": True,
                   "last_payment_id": payload.razorpay_payment_id}})
     await db.orders.update_one({"order_id": payload.razorpay_order_id},
         {"$set": {"status": "paid", "payment_id": payload.razorpay_payment_id, "paid_at": now.isoformat()}})
     await db.products.update_many({"vendor_id": user["id"]}, {"$set": {"vendor_is_pro": True}})
+    await emit_domain_event(
+        db,
+        event_type="SUBSCRIPTION_STARTED",
+        actor_id=user["id"],
+        actor_role="vendor",
+        seller_id=user["id"],
+        order_id=payload.razorpay_order_id,
+        payload={"plan": payload.plan, "amount": plan["amount"], "method": "razorpay"},
+        idempotency_key=f"sub_verify_{payload.razorpay_order_id}",
+    )
     fresh_user = await db.users.find_one({"_id": ObjectId(user["id"])})
     fresh_user["id"] = str(fresh_user["_id"])
     return {"ok": True, "user": serialize_user(fresh_user)}
@@ -1215,6 +1481,22 @@ async def submit_upi_payment(payload: UpiPaymentSubmitPayload, user: dict = Depe
     utr = (payload.utr_number or "").strip()
     if len(utr) < 4:
         raise HTTPException(status_code=400, detail="Please enter a valid UTR / UPI Transaction Reference Number")
+
+    # Idempotency guard on UTR number
+    existing_utr_order = await db.orders.find_one({"user_id": user["id"], "utr_number": utr})
+    if existing_utr_order:
+        fresh_user = await db.users.find_one({"_id": ObjectId(user["id"])})
+        fresh_user["id"] = str(fresh_user["_id"])
+        return {
+            "ok": True,
+            "idempotent": True,
+            "order_id": existing_utr_order.get("order_id"),
+            "status": existing_utr_order.get("status", "paid"),
+            "utr_number": utr,
+            "upi_id": rt["upi_id"],
+            "message": "This UTR reference number was already recorded for your account.",
+            "user": serialize_user(fresh_user),
+        }
 
     tier = "cart_vendor" if user.get("vendor_type") == "cart_vendor" else "retailer"
     if payload.plan == "custom":
@@ -1270,10 +1552,21 @@ async def submit_upi_payment(payload: UpiPaymentSubmitPayload, user: dict = Depe
                 "is_pro": True,
                 "subscription_plan": payload.plan,
                 "pro_expires_at": expires_at.isoformat(),
+                "auto_renew": True,
                 "last_payment_id": payment_id,
             }},
         )
         await db.products.update_many({"vendor_id": user["id"]}, {"$set": {"vendor_is_pro": True}})
+        await emit_domain_event(
+            db,
+            event_type="SUBSCRIPTION_STARTED",
+            actor_id=user["id"],
+            actor_role="vendor",
+            seller_id=user["id"],
+            order_id=order_id,
+            payload={"plan": payload.plan, "amount": amount_paise, "method": "upi_qr"},
+            idempotency_key=f"sub_upi_{utr}",
+        )
 
     fresh_user = await db.users.find_one({"_id": ObjectId(user["id"])})
     fresh_user["id"] = str(fresh_user["_id"])
@@ -1288,6 +1581,66 @@ async def submit_upi_payment(payload: UpiPaymentSubmitPayload, user: dict = Depe
             if auto_approve
             else "UPI Payment UTR submitted! Your Pro plan will activate once verified by Admin."
         ),
+        "user": serialize_user(fresh_user),
+    }
+
+
+@api_router.get("/vendor/subscription-status")
+async def get_vendor_subscription_status(user: dict = Depends(require_vendor)):
+    """Returns plain-language subscription status, trial end date, renewal date, and billing history."""
+    status = compute_trial_status(user)
+    billing_orders = await db.orders.find({"user_id": user["id"]}).sort("created_at", -1).limit(20).to_list(20)
+    for b in billing_orders:
+        b["id"] = str(b.get("_id") or b.get("order_id"))
+        b.pop("_id", None)
+    active_count = await get_active_product_count(user["id"])
+    total_count = await db.products.count_documents({"vendor_id": user["id"]})
+    return {
+        "vendor_type": user.get("vendor_type", "retailer"),
+        "current_plan": user.get("subscription_plan") or ("pro_trial" if status["trial_active"] else "free"),
+        "entitlement_tier": status["entitlement_tier"],
+        "is_pro": status["is_pro"],
+        "has_pro_access": status["has_pro_access"],
+        "trial_active": status["trial_active"],
+        "days_left": status["days_left"],
+        "trial_started_at": user.get("trial_started_at"),
+        "trial_ends_at": status.get("trial_ends_at"),
+        "pro_expires_at": status.get("pro_expires_at"),
+        "auto_renew": user.get("auto_renew", True),
+        "free_product_cap": status["free_product_cap"],
+        "product_limit": status["product_limit"],
+        "active_product_count": active_count,
+        "total_product_count": total_count,
+        "exceeds_free_cap": bool(not status["has_pro_access"] and total_count > (status["free_product_cap"] or 30)),
+        "entitlements": status["entitlements"],
+        "billing_history": billing_orders,
+    }
+
+
+@api_router.post("/vendor/subscription/cancel")
+async def cancel_vendor_subscription(user: dict = Depends(require_vendor)):
+    """
+    Cancels automatic renewal non-destructively.
+    Vendor keeps Pro access until `pro_expires_at`, and 100% of products/orders/history are preserved forever.
+    """
+    now_s = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one(
+        {"_id": ObjectId(user["id"])},
+        {"$set": {"auto_renew": False, "cancelled_at": now_s}},
+    )
+    await emit_domain_event(
+        db,
+        event_type="SUBSCRIPTION_CANCELLED",
+        actor_id=user["id"],
+        actor_role="vendor",
+        seller_id=user["id"],
+        payload={"cancelled_at": now_s, "pro_expires_at": user.get("pro_expires_at")},
+    )
+    fresh_user = await db.users.find_one({"_id": ObjectId(user["id"])})
+    fresh_user["id"] = str(fresh_user["_id"])
+    return {
+        "ok": True,
+        "message": "Auto-renewal cancelled. Your Pro benefits remain active until the end of your billing period, and none of your products or business history will ever be deleted.",
         "user": serialize_user(fresh_user),
     }
 
@@ -2021,22 +2374,25 @@ async def admin_clear_razorpay_settings(admin: dict = Depends(require_admin)):
 
 
 async def seed_admin():
-    email = ADMIN_SEED_EMAIL.lower()
-    existing = await db.users.find_one({"email": email})
     now = datetime.now(timezone.utc).isoformat()
-    if existing:
-        # Ensure role is admin and password matches the configured value; idempotent
-        await db.users.update_one({"_id": existing["_id"]}, {"$set": {
-            "role": "admin", "name": ADMIN_SEED_NAME,
-            "password_hash": hash_password(ADMIN_SEED_PASSWORD),
-        }})
-        return
-    await db.users.insert_one({
-        "email": email, "password_hash": hash_password(ADMIN_SEED_PASSWORD),
-        "name": ADMIN_SEED_NAME, "role": "admin",
-        "created_at": now, "city": "Dehradun",
-    })
-    logging.info(f"Admin seeded: {email}")
+    admin_accounts = [
+        (ADMIN_SEED_EMAIL.lower(), ADMIN_SEED_PASSWORD, ADMIN_SEED_NAME),
+        ("admin@localprice.in", "Admin@1234", "Super Admin"),
+    ]
+    for email, pwd, name in admin_accounts:
+        existing = await db.users.find_one({"email": email})
+        if existing:
+            await db.users.update_one({"_id": existing["_id"]}, {"$set": {
+                "role": "admin", "name": name,
+                "password_hash": hash_password(pwd),
+            }})
+        else:
+            await db.users.insert_one({
+                "email": email, "password_hash": hash_password(pwd),
+                "name": name, "role": "admin",
+                "created_at": now, "city": "Dehradun",
+            })
+            logging.info(f"Admin seeded: {email}")
 
 
 
@@ -2090,6 +2446,11 @@ async def startup():
         await _ai_cc_init(db)
     except Exception as e:
         logging.error(f"AI Control Center init error: {e}")
+    try:
+        from commerce_os_engine import ensure_commerce_os_indexes_and_seeds as _cos_init
+        await _cos_init(db)
+    except Exception as e:
+        logging.error(f"Commerce OS init error: {e}")
 
 
 app.include_router(api_router)
@@ -2117,6 +2478,10 @@ app.include_router(_voice_build_router(db, get_current_user, require_vendor, req
 # Universal AI Copilot, Multilingual Voice Conversation, TTS & Admin Control Center
 from ai_control_center_engine import build_ai_control_center_router as _ai_cc_build_router
 app.include_router(_ai_cc_build_router(db, get_current_user, require_vendor, require_consumer, require_admin, get_optional_user), prefix="/api")
+
+# HyperLocal Commerce Operating System Master Upgrade (Points 1-40)
+from commerce_os_engine import build_commerce_os_router as _cos_build_router
+app.include_router(_cos_build_router(db, get_current_user, require_vendor, require_consumer, require_admin, get_optional_user), prefix="/api")
 app.add_middleware(
     CORSMiddleware, allow_credentials=True,
     allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),

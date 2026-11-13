@@ -54,17 +54,62 @@ export default function Navbar() {
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">
-          <NavLink to="/search" data-testid={NAV.searchLink} className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>{t('navFindProducts')}</NavLink>
-          <NavLink to="/map" className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>{t('navMap')}</NavLink>
-          <NavLink to="/i-need" className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>{t('navINeed')}</NavLink>
           {user && user.role === 'vendor' ? (
-            <NavLink to="/vendor/dashboard" data-testid={NAV.dashboardLink} className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>
-              <span className="inline-flex items-center gap-1.5"><LayoutDashboard size={14} /> {t('navDashboard')}</span>
-            </NavLink>
+            <>
+              <NavLink to="/vendor/dashboard?tab=home" data-testid={NAV.dashboardLink} className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>
+                Home
+              </NavLink>
+              <NavLink to="/vendor/products" className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>
+                Products
+              </NavLink>
+              {user.vendor_type === 'cart_vendor' ? (
+                <Link to="/vendor/dashboard?tab=customers" className="px-3 py-2 rounded-md text-sm font-medium text-stone-700 hover:text-[#0A6E3B] transition-colors">
+                  Customers
+                </Link>
+              ) : (
+                <Link to="/vendor/dashboard?tab=orders" className="px-3 py-2 rounded-md text-sm font-medium text-stone-700 hover:text-[#0A6E3B] transition-colors">
+                  Orders
+                </Link>
+              )}
+              <Link to="/vendor/dashboard?tab=growth" className="px-3 py-2 rounded-md text-sm font-medium text-stone-700 hover:text-[#0A6E3B] transition-colors">
+                Growth
+              </Link>
+              <Link to="/vendor/dashboard?tab=more" className="px-3 py-2 rounded-md text-sm font-medium text-stone-700 hover:text-[#0A6E3B] transition-colors">
+                More
+              </Link>
+              <NavLink to="/search" data-testid={NAV.searchLink} className={({isActive}) => `px-3 py-2 rounded-md text-xs font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-500 hover:text-[#0A6E3B]'}`}>
+                Storefront
+              </NavLink>
+              <NavLink to="/admin/login" className={({isActive}) => `px-3 py-2 rounded-md text-xs font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-500 hover:text-[#0A6E3B]'}`}>
+                <span className="inline-flex items-center gap-1"><ShieldCheck size={13} className="text-emerald-700" /> Admin</span>
+              </NavLink>
+            </>
           ) : (
-            <NavLink to="/vendor/dashboard" className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>
-              <span className="inline-flex items-center gap-1.5"><Store size={14} /> Vendor Panel</span>
-            </NavLink>
+            <>
+              <NavLink to="/" end className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>
+                Home
+              </NavLink>
+              <NavLink to="/search" data-testid={NAV.searchLink} className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>
+                Explore
+              </NavLink>
+              <NavLink to="/map" className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>
+                {t('navMap')}
+              </NavLink>
+              <NavLink to="/i-need" className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>
+                Requests
+              </NavLink>
+              {user && user.role === 'consumer' && (
+                <NavLink to="/orders" className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>
+                  Orders
+                </NavLink>
+              )}
+              <NavLink to="/vendor/dashboard" className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>
+                <span className="inline-flex items-center gap-1.5"><Store size={14} /> Vendor Panel</span>
+              </NavLink>
+              <NavLink to={user?.role === 'admin' ? '/admin' : '/admin/login'} data-testid="nav-admin-console-link" className={({isActive}) => `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive ? 'text-[#0A6E3B] bg-emerald-50' : 'text-stone-700 hover:text-[#0A6E3B]'}`}>
+                <span className="inline-flex items-center gap-1.5"><ShieldCheck size={14} className="text-emerald-700" /> Admin Console</span>
+              </NavLink>
+            </>
           )}
         </nav>
 
@@ -107,20 +152,22 @@ export default function Navbar() {
             <>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="text-stone-700 hover:text-[#0A6E3B] hidden sm:inline-flex">
+                  <Button variant="ghost" size="sm" className="text-stone-700 hover:text-[#0A6E3B] inline-flex">
                     {t('signIn')} <ChevronDown size={14} className="ml-1" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="bg-white">
                   <DropdownMenuLabel>Choose account type</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild><Link to="/auth/consumer" data-testid={NAV.consumerLoginLink}>I'm a Shopper</Link></DropdownMenuItem>
-                  <DropdownMenuItem asChild><Link to="/auth/vendor" data-testid={NAV.vendorLoginLink}>I'm a Vendor</Link></DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/auth/consumer')} data-testid={NAV.consumerLoginLink} className="cursor-pointer">
+                    I'm a Shopper
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/auth/vendor')} data-testid={NAV.vendorLoginLink} className="cursor-pointer">
+                    I'm a Vendor
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <Link to="/admin/login" className="flex items-center text-emerald-800 font-medium">
-                      <ShieldCheck size={14} className="mr-1.5 text-emerald-700" /> Admin Console
-                    </Link>
+                  <DropdownMenuItem onSelect={() => navigate('/admin/login')} data-testid="dropdown-admin-login" className="cursor-pointer flex items-center text-emerald-800 font-medium">
+                    <ShieldCheck size={14} className="mr-1.5 text-emerald-700" /> Admin Console
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -136,29 +183,36 @@ export default function Navbar() {
               <DropdownMenuContent align="end" className="bg-white">
                 <DropdownMenuLabel>{user.email}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild><Link to="/profile">Profile</Link></DropdownMenuItem>
-                <DropdownMenuItem asChild><Link to="/messages">Messages</Link></DropdownMenuItem>
-                <DropdownMenuItem asChild><Link to="/grievances">Help & Grievances</Link></DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate('/profile')} className="cursor-pointer">Profile</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate('/messages')} className="cursor-pointer">Messages</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate('/grievances')} className="cursor-pointer">Help & Grievances</DropdownMenuItem>
                 {user.role === 'consumer' && (<>
-                  <DropdownMenuItem asChild><Link to="/orders">My Orders</Link></DropdownMenuItem>
-                  <DropdownMenuItem asChild><Link to="/cart">My Cart</Link></DropdownMenuItem>
-                  <DropdownMenuItem asChild><Link to="/saved">Saved</Link></DropdownMenuItem>
-                  <DropdownMenuItem asChild><Link to="/i-need">My requests</Link></DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/orders')} className="cursor-pointer">My Orders</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/cart')} className="cursor-pointer">My Cart</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/saved')} className="cursor-pointer">Saved</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/i-need')} className="cursor-pointer">My requests</DropdownMenuItem>
                 </>)}
                 {user.role === 'vendor' && (<>
-                  <DropdownMenuItem asChild><Link to="/vendor/dashboard">Dashboard</Link></DropdownMenuItem>
-                  <DropdownMenuItem asChild><Link to="/vendor/analytics">Sales Impact & Attribution</Link></DropdownMenuItem>
-                  <DropdownMenuItem asChild><Link to="/vendor/products">Products</Link></DropdownMenuItem>
-                  <DropdownMenuItem asChild><Link to="/vendor/pricing">Upgrade</Link></DropdownMenuItem>
-                </>)}
-                {user.role === 'admin' && (<>
-                  <DropdownMenuItem asChild><Link to="/admin" className="font-semibold text-emerald-800"><ShieldCheck size={14} className="mr-1.5 text-emerald-700" /> Admin Console</Link></DropdownMenuItem>
-                  <DropdownMenuItem asChild><Link to="/admin/ai-control-center">AI Control Center</Link></DropdownMenuItem>
-                  <DropdownMenuItem asChild><Link to="/admin/smart-features">Smart Features</Link></DropdownMenuItem>
-                  <DropdownMenuItem asChild><Link to="/admin/billing">Marketplace Billing</Link></DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/vendor/dashboard')} className="cursor-pointer">Dashboard</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/vendor/analytics')} className="cursor-pointer">Sales Impact & Attribution</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/vendor/products')} className="cursor-pointer">Products</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/vendor/pricing')} className="cursor-pointer">Upgrade</DropdownMenuItem>
                 </>)}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={onLogout} data-testid={NAV.logoutButton}>
+                <DropdownMenuItem
+                  onSelect={() => navigate(user.role === 'admin' ? '/admin' : '/admin/login')}
+                  className="cursor-pointer font-semibold text-emerald-800"
+                >
+                  <ShieldCheck size={14} className="mr-1.5 text-emerald-700" />
+                  {user.role === 'admin' ? 'Open Admin Console' : 'Admin Console Login'}
+                </DropdownMenuItem>
+                {user.role === 'admin' && (<>
+                  <DropdownMenuItem onSelect={() => navigate('/admin/ai-control-center')} className="cursor-pointer">AI Control Center</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/admin/smart-features')} className="cursor-pointer">Smart Features</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => navigate('/admin/billing')} className="cursor-pointer">Marketplace Billing</DropdownMenuItem>
+                </>)}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onLogout} data-testid={NAV.logoutButton} className="cursor-pointer">
                   <LogOut size={14} className="mr-2" /> Log out
                 </DropdownMenuItem>
               </DropdownMenuContent>

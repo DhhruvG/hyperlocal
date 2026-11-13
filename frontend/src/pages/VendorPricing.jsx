@@ -62,6 +62,19 @@ export default function VendorPricing() {
   const [checkoutMethod, setCheckoutMethod] = useState('upi_qr'); // 'upi_qr' | 'razorpay'
   const [modalUtr, setModalUtr] = useState('');
   const [modalPayerUpi, setModalPayerUpi] = useState('');
+  const [subStatus, setSubStatus] = useState(null);
+  const [cancelBusy, setCancelBusy] = useState(false);
+
+  const loadSubStatus = async () => {
+    if (user?.role === 'vendor') {
+      try {
+        const { data } = await api.get('/vendor/subscription-status');
+        setSubStatus(data);
+      } catch {
+        // ignore
+      }
+    }
+  };
 
   useEffect(() => {
     api.get('/payments/config').then((r) => {
@@ -71,7 +84,23 @@ export default function VendorPricing() {
         setCheckoutMethod('razorpay');
       }
     });
-  }, []);
+    loadSubStatus();
+    // eslint-disable-next-line
+  }, [user?.id]);
+
+  const handleCancelSubscription = async () => {
+    setCancelBusy(true);
+    try {
+      const { data } = await api.post('/vendor/subscription/cancel');
+      toast.success(data.message || 'Auto-renewal cancelled. Your products and history remain safe.');
+      await loadSubStatus();
+      await refresh();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || 'Could not cancel subscription');
+    } finally {
+      setCancelBusy(false);
+    }
+  };
 
   const isPro = user?.is_pro;
   const activeTier = user?.role === 'vendor' ? (user.vendor_type === 'cart_vendor' ? 'cart_vendor' : 'retailer') : tab;
@@ -320,6 +349,163 @@ export default function VendorPricing() {
             onBuy={() => handlePlanButtonClick('yearly')}
             disabled={busy || isPro || (user && user.role !== 'vendor')}
           />
+        </div>
+      )}
+
+      {/* FREE VS PRO CLEAR COMPARISON CARD (Part 4.2, 4.3, 4.6) */}
+      <div data-testid="free-vs-pro-comparison" className="mt-10 max-w-5xl mx-auto rounded-3xl border border-stone-200 bg-white p-6 md:p-8 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-stone-100">
+          <div>
+            <span className="text-xs font-bold uppercase tracking-wider text-[#0A6E3B]">Transparent Plan Comparison</span>
+            <h2 className="font-display text-2xl font-semibold text-stone-900 mt-1">
+              {activeTier === 'cart_vendor' ? 'Mobile Cart Vendor: Free vs. Pro' : 'Retail Shopkeeper: Free vs. Pro'}
+            </h2>
+            <p className="text-xs text-stone-600 mt-0.5">
+              Every new seller receives a 30-day Free Pro Trial. If your trial or subscription ends, none of your products or sales history are ever deleted.
+            </p>
+          </div>
+          <Badge className="bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs w-fit">
+            Consumers are 100% Free Forever
+          </Badge>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+          {/* Free Tier Column */}
+          <div className="rounded-2xl border border-stone-200 bg-stone-50/70 p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="font-display text-lg font-bold text-stone-900">
+                {activeTier === 'cart_vendor' ? 'Mobile Cart Free Plan' : 'Retailer Free Plan'}
+              </div>
+              <Badge variant="outline" className="bg-white text-stone-800">₹0 Forever</Badge>
+            </div>
+            <p className="text-xs text-stone-600">
+              Everything you need to run your daily neighbourhood business at zero cost.
+            </p>
+            <ul className="space-y-2 text-xs text-stone-700 pt-2">
+              <li className="flex items-center gap-2">
+                <Check size={14} className="text-[#0A6E3B] shrink-0" />
+                <span>Up to <strong>{activeTier === 'cart_vendor' ? '20 active product listings' : '30 active product listings'}</strong></span>
+              </li>
+              {activeTier === 'cart_vendor' && (
+                <>
+                  <li className="flex items-center gap-2">
+                    <Check size={14} className="text-[#0A6E3B] shrink-0" />
+                    <span><strong>Live Location Sharing & Map Pin (Always 100% Free)</strong></span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check size={14} className="text-[#0A6E3B] shrink-0" />
+                    <span><strong>1-Tap Start Selling / Stop Selling (Always 100% Free)</strong></span>
+                  </li>
+                </>
+              )}
+              <li className="flex items-center gap-2">
+                <Check size={14} className="text-[#0A6E3B] shrink-0" />
+                <span>1-Tap Product Templates, Manual & Basic Voice Entry</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Check size={14} className="text-[#0A6E3B] shrink-0" />
+                <span>Receive & Manage Customer Orders, Cash Collection & Invoices</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Check size={14} className="text-[#0A6E3B] shrink-0" />
+                <span>Customer Messages & Nearby 'I Need' Buyer Requests</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Pro Tier Column */}
+          <div className="rounded-2xl border-2 border-[#0A6E3B] bg-emerald-50/30 p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="font-display text-lg font-bold text-stone-900">
+                {activeTier === 'cart_vendor' ? 'Mobile Cart Pro Plan' : 'Retailer Pro Plan'}
+              </div>
+              <Badge className="bg-[#0A6E3B] text-white border-0">
+                {activeTier === 'cart_vendor' ? '₹99/mo · ₹799/yr' : '₹199/mo · ₹1,499/yr'}
+              </Badge>
+            </div>
+            <p className="text-xs text-stone-600">
+              Includes a <strong>30-Day Free Trial</strong> for every new account. Cancel anytime without losing data.
+            </p>
+            <ul className="space-y-2 text-xs text-stone-800 pt-2">
+              <li className="flex items-center gap-2">
+                <Check size={14} className="text-[#0A6E3B] shrink-0" />
+                <span><strong>Unlimited Active Product Listings</strong> (No 20/30 item cap)</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Check size={14} className="text-[#0A6E3B] shrink-0" />
+                <span>
+                  {activeTier === 'cart_vendor'
+                    ? 'AI Smart Route Optimization & High-Demand Stop Predictions'
+                    : 'AI Stockout Risk Alerts & Competitor Price Intelligence'}
+                </span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Check size={14} className="text-[#0A6E3B] shrink-0" />
+                <span>7-Day Predictive Neighbourhood Demand Forecasting</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Check size={14} className="text-[#0A6E3B] shrink-0" />
+                <span>Per-Product Views, Clicks, CTR & Customer Retention CRM</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Check size={14} className="text-[#0A6E3B] shrink-0" />
+                <span>Multi-Branch Management & Featured Local Promotions</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* CURRENT SUBSCRIPTION STATUS, BILLING HISTORY & NON-DESTRUCTIVE CANCELLATION (Part 4.4 & 4.6) */}
+      {user?.role === 'vendor' && subStatus && (
+        <div data-testid="vendor-subscription-status-card" className="mt-8 max-w-5xl mx-auto rounded-3xl border border-stone-200 bg-white p-6 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-100">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-stone-500">Your Account Subscription Summary</div>
+              <div className="font-display text-xl font-semibold text-stone-900 mt-1">
+                Status: {subStatus.is_pro ? 'Pro Subscription Active' : subStatus.trial_active ? `30-Day Free Pro Trial (${subStatus.days_left} days left)` : 'Free Plan Active'}
+              </div>
+              <div className="text-xs text-stone-600 mt-0.5">
+                Active Products: <strong>{subStatus.active_product_count ?? 0}</strong> / {subStatus.product_limit ?? 'Unlimited'}
+                {subStatus.pro_expires_at && <span className="ml-3">· Renewal / Expiry: <strong>{new Date(subStatus.pro_expires_at).toLocaleDateString()}</strong></span>}
+                {subStatus.trial_ends_at && !subStatus.is_pro && <span className="ml-3">· Trial Ends: <strong>{new Date(subStatus.trial_ends_at).toLocaleDateString()}</strong></span>}
+              </div>
+            </div>
+            {subStatus.is_pro && !subStatus.subscription_cancelled && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={cancelBusy}
+                onClick={handleCancelSubscription}
+                data-testid="cancel-subscription-btn"
+                className="rounded-full text-xs border-stone-300 text-stone-700 hover:text-rose-700"
+              >
+                {cancelBusy ? 'Updating...' : 'Cancel Auto-Renewal (Keep Products Safe)'}
+              </Button>
+            )}
+          </div>
+
+          {subStatus.billing_history?.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-stone-700 mb-2">Recent Billing & Payment History</div>
+              <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                {subStatus.billing_history.slice(0, 5).map((bh) => (
+                  <div key={bh.id} className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-stone-50 border border-stone-200">
+                    <div>
+                      <span className="font-semibold text-stone-900 uppercase">{bh.plan}</span>
+                      <span className="text-stone-500 ml-2">via {bh.payment_method || 'UPI / Online'}</span>
+                      {bh.utr_number && <span className="font-mono text-[11px] text-stone-500 ml-2">UTR: {bh.utr_number}</span>}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-semibold text-stone-900">₹{(bh.amount || 0) / 100}</span>
+                      <Badge variant="outline" className="text-[10px]">{bh.status}</Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

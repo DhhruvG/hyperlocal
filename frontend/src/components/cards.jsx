@@ -218,6 +218,27 @@ export function ProductCard({ product: p, showSave = true, saved = false, onSave
         <Badge variant="outline" className="text-[10px] border-stone-300">{p.vendor_type === 'cart_vendor' ? t('cart') : t('shop')}</Badge>
         {p.vendor_is_pro && <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white text-[10px] border-0"><CheckCircle2 size={9} className="mr-0.5" /> {t('verified')}</Badge>}
         {p.is_featured && <Badge className="bg-amber-400 hover:bg-amber-400 text-amber-950 text-[10px] border-0"><Zap size={9} className="mr-0.5" /> Featured</Badge>}
+        {p.in_stock && p.inventory_freshness_state && (
+          <Badge
+            data-testid={`freshness-badge-${p.id}`}
+            title={`Inventory Confidence Score: ${p.inventory_confidence_score ?? 80}/100`}
+            className={`border-0 text-[10px] ${
+              p.inventory_freshness_state === 'CONFIRMED_RECENTLY'
+                ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                : p.inventory_freshness_state === 'PROBABLY_AVAILABLE'
+                ? 'bg-amber-50 text-amber-900 border border-amber-200'
+                : 'bg-orange-50 text-orange-900 border border-orange-200'
+            }`}
+          >
+            {p.inventory_badge_label || (
+              p.inventory_freshness_state === 'CONFIRMED_RECENTLY'
+                ? '🟢 Confirmed recently'
+                : p.inventory_freshness_state === 'PROBABLY_AVAILABLE'
+                ? '🟡 Probably available'
+                : '🟠 Information may be outdated'
+            )}
+          </Badge>
+        )}
       </div>
 
       <Link to={`/vendors/${p.vendor_id}`} onClick={trackClick} className="mt-3 pt-3 border-t border-stone-100 text-sm hover:text-[#0A6E3B] transition-colors">
@@ -340,6 +361,11 @@ export function VendorCard({ vendor: v }) {
             <Badge variant="outline" className="border-stone-300 text-[10px]">{isCart ? t('cart') : t('shop')}</Badge>
             {v.is_verified && <Badge className="bg-emerald-100 text-emerald-900 hover:bg-emerald-100 border-0 text-[10px]"><CheckCircle2 size={9} className="mr-0.5" /> {t('verified')}</Badge>}
             {isCart && v.is_online && <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100 border-0 text-[10px] animate-pulse">● {t('onlineNow')}</Badge>}
+            {v.reliability_label && (
+              <Badge variant="outline" className="border-emerald-200 bg-emerald-50/50 text-emerald-800 text-[10px]">
+                {v.reliability_label} {v.reliability_score ? `(${v.reliability_score}%)` : ''}
+              </Badge>
+            )}
           </div>
         </div>
         <div className="flex flex-col items-end shrink-0">

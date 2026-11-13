@@ -89,6 +89,84 @@ export default function ConsumerSearch() {
   const [basketResult, setBasketResult] = useState(null);
   const [basketLoading, setBasketLoading] = useState(false);
 
+  // Smart Shopping Lists & Sponsored Campaigns
+  const [sponsoredAds, setSponsoredAds] = useState([]);
+  const [listsOpen, setListsOpen] = useState(false);
+  const [shoppingLists, setShoppingLists] = useState([]);
+  const [newListName, setNewListName] = useState('');
+  const [newListTemplate, setNewListTemplate] = useState('MONTHLY_RATION');
+  const [newListItemsText, setNewListItemsText] = useState('Rice 5kg, Atta 10kg, Toor Dal 2kg');
+  const [listOptimizingId, setListOptimizingId] = useState(null);
+  const [listOptimizationResult, setListOptimizationResult] = useState(null);
+
+  useEffect(() => {
+    api.get('/campaigns/sponsored', { params: { category } })
+      .then(r => setSponsoredAds(r.data || []))
+      .catch(() => {});
+  }, [category]);
+
+  const loadShoppingLists = async () => {
+    try {
+      const res = await api.get('/shopping-lists');
+      setShoppingLists(res.data || []);
+    } catch {
+      setShoppingLists([]);
+    }
+  };
+
+  const handleCreateShoppingList = async (e) => {
+    e.preventDefault();
+    if (!newListName.trim()) return;
+    const parsedItems = newListItemsText
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(s => ({ item_name: s, quantity: 1, unit: 'unit' }));
+    try {
+      await api.post('/shopping-lists', {
+        name: newListName.trim(),
+        template_type: newListTemplate,
+        items: parsedItems,
+      });
+      toast.success('Smart Shopping List created!');
+      setNewListName('');
+      loadShoppingLists();
+    } catch {
+      toast.error('Please sign in as a shopper to save persistent Shopping Lists.');
+    }
+  };
+
+  const handleOptimizeSavedList = async (listId) => {
+    setListOptimizingId(listId);
+    try {
+      const res = await api.post(`/shopping-lists/${listId}/optimize`);
+      setListOptimizationResult(res.data);
+      toast.success(`Optimized "${res.data.list_name}" across nearby stores!`);
+    } catch {
+      toast.error('Could not optimize shopping list.');
+    } finally {
+      setListOptimizingId(null);
+    }
+  };
+
+  const handleConvertBasketToCart = async (modeKey, itemsList) => {
+    if (!itemsList || itemsList.length === 0) {
+      toast.error('No matched in-stock items to add.');
+      return;
+    }
+    try {
+      const res = await api.post('/basket/convert-to-cart', {
+        mode: modeKey,
+        items: itemsList,
+      });
+      window.dispatchEvent(new Event('cart_updated'));
+      toast.success(`Added ${res.data.added_items_count} optimized item(s) to your cart!`);
+      setBasketOpen(false);
+    } catch {
+      toast.error('Please sign in as a shopper to convert basket to cart.');
+    }
+  };
+
   const handleAskCopilot = async (customQ) => {
     const queryToUse = customQ || copilotQuery || q;
     if (!queryToUse.trim()) return;
@@ -215,6 +293,17 @@ export default function ConsumerSearch() {
           <ShoppingBag size={13} className="text-purple-600" />
           Cheapest Basket Optimizer
         </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => { setListsOpen(true); loadShoppingLists(); }}
+          className="rounded-full text-xs h-8 gap-1.5 bg-white border-amber-300 text-amber-900 hover:bg-amber-50"
+          data-testid="open-smart-shopping-lists"
+        >
+          <CheckCircle2 size={13} className="text-amber-600" />
+          Smart Shopping Lists
+        </Button>
       </div>
 
       {/* INLINE COPILOT DRAWER */}
@@ -272,7 +361,8 @@ export default function ConsumerSearch() {
             <SelectTrigger data-testid={SEARCH.sortSelect} className="w-[160px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="distance">Nearest first</SelectItem>
-              <SelectItem value="price_asc">Cheapest first</SelectItem>
+              <SelectItem value="price_asc">Cheapest first (Freshness weighted)</SelectItem>
+              <SelectItem value="confidence">Highest inventory confidence</SelectItem>
               <SelectItem value="price_desc">Highest first</SelectItem>
               <SelectItem value="latest">Recently updated</SelectItem>
             </SelectContent>
@@ -281,6 +371,17 @@ export default function ConsumerSearch() {
             <Switch data-testid={SEARCH.inStockToggle} checked={inStock} onCheckedChange={setInStock} id="in-stock" />
             <Label htmlFor="in-stock" className="text-xs text-stone-600">In stock</Label>
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setVoiceOpen(true)}
+            data-testid="search-bar-voice-btn"
+            title="Voice search"
+            aria-label="Voice search"
+            className="rounded-full h-10 w-10 p-0 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-[#0A6E3B] shrink-0"
+          >
+            <Mic size={16} />
+          </Button>
           <Button data-testid={SEARCH.submit} type="submit" className="rounded-full bg-[#0A6E3B] hover:bg-[#075030] text-white h-10 px-6">Search</Button>
         </div>
       </form>
@@ -409,39 +510,90 @@ export default function ConsumerSearch() {
 
             {basketResult && (
               <div className="space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {/* Option A */}
-                  <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Badge className="bg-stone-800 text-white text-[10px]">OPTION A: SINGLE STORE</Badge>
-                      <span className="font-bold text-stone-900 text-sm">
-                        ₹{basketResult.option_a_single_store?.total_cost || 0}
-                      </span>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* CHEAPEST (Multi-Store Split) */}
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <Badge className="bg-emerald-600 text-white text-[10px]">CHEAPEST (SPLIT)</Badge>
+                        <span className="font-bold text-emerald-900 text-sm">
+                          ₹{basketResult.modes?.CHEAPEST?.total_cost ?? basketResult.option_b_multi_store?.total_cost ?? 0}
+                        </span>
+                      </div>
+                      <div className="text-xs font-medium text-emerald-950 mt-1">
+                        Split across {basketResult.modes?.CHEAPEST?.stores_required ?? basketResult.option_b_multi_store?.stores_count ?? 1} store(s)
+                      </div>
+                      <div className="text-[11px] text-emerald-700 font-semibold mt-0.5">
+                        Save ₹{basketResult.modes?.CHEAPEST?.potential_savings ?? basketResult.option_b_multi_store?.savings_vs_single ?? 0}
+                      </div>
                     </div>
-                    <div className="text-xs font-medium text-stone-700">
-                      {basketResult.option_a_single_store?.vendor_name || 'Nearest Supermarket'}
-                    </div>
-                    <div className="text-[11px] text-stone-500">
-                      {basketResult.option_a_single_store?.items_found || 0} items found in 1 visit
-                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => handleConvertBasketToCart('CHEAPEST', basketResult.modes?.CHEAPEST?.items || basketResult.option_b_multi_store?.items || [])}
+                      className="w-full h-7 text-[11px] rounded-full bg-emerald-700 hover:bg-emerald-800 text-white"
+                    >
+                      Convert Cheapest to Cart
+                    </Button>
                   </div>
 
-                  {/* Option B */}
-                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Badge className="bg-emerald-600 text-white text-[10px]">OPTION B: SPLIT SAVINGS</Badge>
-                      <span className="font-bold text-emerald-800 text-sm">
-                        ₹{basketResult.option_b_multi_store?.total_cost || 0}
-                      </span>
+                  {/* CONVENIENT (Single Store) */}
+                  <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl space-y-2 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <Badge className="bg-stone-800 text-white text-[10px]">CONVENIENT (1 STOP)</Badge>
+                        <span className="font-bold text-stone-900 text-sm">
+                          ₹{basketResult.modes?.CONVENIENT?.total_cost ?? basketResult.option_a_single_store?.total_cost ?? 0}
+                        </span>
+                      </div>
+                      <div className="text-xs font-medium text-stone-800 mt-1 truncate">
+                        {basketResult.modes?.CONVENIENT?.vendor_shop || basketResult.option_a_single_store?.vendor_name || 'Best Single Store'}
+                      </div>
+                      <div className="text-[11px] text-stone-500 mt-0.5">
+                        {basketResult.modes?.CONVENIENT?.items_found ?? basketResult.option_a_single_store?.items_found ?? 0} items · Avg Confidence {basketResult.modes?.CONVENIENT?.avg_confidence_score ?? 85}%
+                      </div>
                     </div>
-                    <div className="text-xs font-medium text-emerald-900">
-                      Split across {basketResult.option_b_multi_store?.stores_count || 1} stores
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleConvertBasketToCart('CONVENIENT', basketResult.modes?.CONVENIENT?.items || basketResult.option_a_single_store?.items || [])}
+                      className="w-full h-7 text-[11px] rounded-full border-stone-300"
+                    >
+                      Convert 1-Stop to Cart
+                    </Button>
+                  </div>
+
+                  {/* NEAREST */}
+                  <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl space-y-2 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <Badge className="bg-blue-700 text-white text-[10px]">NEAREST STORES</Badge>
+                        <span className="font-bold text-blue-950 text-sm">
+                          ₹{basketResult.modes?.NEAREST?.total_cost ?? basketResult.option_a_single_store?.total_cost ?? 0}
+                        </span>
+                      </div>
+                      <div className="text-xs font-medium text-blue-900 mt-1">
+                        Closest available stock ({basketResult.modes?.NEAREST?.stores_required ?? 1} stop)
+                      </div>
+                      <div className="text-[11px] text-blue-700 mt-0.5">
+                        Minimizes walking/driving distance
+                      </div>
                     </div>
-                    <div className="text-[11px] text-emerald-700 font-semibold">
-                      Save ₹{basketResult.option_b_multi_store?.savings_vs_single || 0} vs single store
-                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleConvertBasketToCart('NEAREST', basketResult.modes?.NEAREST?.items || [])}
+                      className="w-full h-7 text-[11px] rounded-full border-blue-300 text-blue-900"
+                    >
+                      Convert Nearest to Cart
+                    </Button>
                   </div>
                 </div>
+
+                {basketResult.missing_products?.length > 0 && (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900">
+                    <strong>Missing in local stock:</strong> {basketResult.missing_products.join(', ')}
+                  </div>
+                )}
 
                 <div className="p-2.5 bg-stone-100 rounded-lg text-[11px] text-stone-600">
                   {basketResult.tradeoff_summary}
@@ -451,6 +603,138 @@ export default function ConsumerSearch() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* SMART SHOPPING LISTS MODAL */}
+      <Dialog open={listsOpen} onOpenChange={setListsOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto bg-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <CheckCircle2 size={18} className="text-amber-600" />
+              Persistent Smart Shopping Lists
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-xs">
+            <form onSubmit={handleCreateShoppingList} className="p-3.5 bg-stone-50 border border-stone-200 rounded-xl space-y-2.5">
+              <div className="font-semibold text-stone-900">Create Reusable Household List</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <Input
+                  placeholder="List Name (e.g. Monthly Ration)"
+                  value={newListName}
+                  onChange={(e) => setNewListName(e.target.value)}
+                  required
+                  className="h-8 text-xs bg-white"
+                />
+                <Select value={newListTemplate} onValueChange={setNewListTemplate}>
+                  <SelectTrigger className="h-8 text-xs bg-white"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="MONTHLY_RATION">Monthly Ration</SelectItem>
+                    <SelectItem value="WEEKLY_VEGETABLES">Weekly Vegetables</SelectItem>
+                    <SelectItem value="DAILY_ESSENTIALS">Daily Milk & Bread</SelectItem>
+                    <SelectItem value="FESTIVAL">Festival List</SelectItem>
+                    <SelectItem value="CUSTOM">Custom List</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Items (comma-separated, e.g. Tomato, Milk, Bread)"
+                  value={newListItemsText}
+                  onChange={(e) => setNewListItemsText(e.target.value)}
+                  className="h-8 text-xs bg-white"
+                />
+                <Button type="submit" size="sm" className="h-8 bg-[#0A6E3B] text-white text-xs shrink-0">
+                  Save List
+                </Button>
+              </div>
+            </form>
+
+            <div className="space-y-2">
+              {shoppingLists.length === 0 ? (
+                <div className="text-center py-6 text-stone-400">
+                  No saved shopping lists yet. Create one above to track prices and optimize baskets in 1 click.
+                </div>
+              ) : (
+                shoppingLists.map((sl) => (
+                  <div key={sl.id} className="p-3 border border-stone-200 rounded-xl flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-stone-900 flex items-center gap-2">
+                        {sl.name}
+                        <Badge variant="outline" className="text-[10px]">{sl.template_type}</Badge>
+                      </div>
+                      <div className="text-stone-500 text-[11px] mt-0.5">
+                        {(sl.items || []).map(i => i.item_name).join(', ') || 'Empty list'}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={listOptimizingId === sl.id}
+                      onClick={() => handleOptimizeSavedList(sl.id)}
+                      className="rounded-full text-xs h-7 border-emerald-300 text-emerald-800"
+                    >
+                      {listOptimizingId === sl.id ? 'Optimizing…' : 'Optimize Basket'}
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {listOptimizationResult && (
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
+                <div className="font-semibold text-emerald-950">
+                  Optimization for "{listOptimizationResult.list_name}":
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="p-2 bg-white rounded-lg border border-emerald-100">
+                    <div className="text-[10px] text-stone-500">Cheapest Split</div>
+                    <div className="font-bold text-sm text-emerald-800">₹{listOptimizationResult.estimated_total_cheapest}</div>
+                  </div>
+                  <div className="p-2 bg-white rounded-lg border border-emerald-100">
+                    <div className="text-[10px] text-stone-500">1-Stop Convenient</div>
+                    <div className="font-bold text-sm text-stone-900">₹{listOptimizationResult.estimated_total_convenient}</div>
+                  </div>
+                  <div className="p-2 bg-white rounded-lg border border-emerald-100">
+                    <div className="text-[10px] text-stone-500">Potential Savings</div>
+                    <div className="font-bold text-sm text-emerald-700">₹{listOptimizationResult.potential_savings}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* SPONSORED PROMOTIONS STRIP (Clearly separated from organic ranking) */}
+      {sponsoredAds.length > 0 && (
+        <div className="mt-6 p-4 rounded-2xl bg-amber-50/50 border border-amber-200/80">
+          <div className="flex items-center justify-between mb-2.5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+              <Badge className="bg-amber-200 text-amber-950 border-0 text-[10px]">SPONSORED</Badge>
+              <span>Neighborhood Featured Merchant Promotions</span>
+            </div>
+            <span className="text-[10px] text-stone-400">Organic results below are ranked independently</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {sponsoredAds.map((ad) => (
+              <div
+                key={ad.campaign_id}
+                onClick={() => {
+                  api.post(`/campaigns/${ad.campaign_id}/event?event_type=CLICK`).catch(() => {});
+                  window.location.href = `/vendors/${ad.vendor_id}`;
+                }}
+                className="p-3 rounded-xl bg-white border border-amber-200 hover:border-amber-400 cursor-pointer transition-all flex items-center justify-between gap-2"
+              >
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-stone-900 truncate">{ad.title}</div>
+                  <div className="text-[11px] text-stone-500 truncate">{ad.vendor_shop}</div>
+                  {ad.offer_headline && <div className="text-[10px] text-emerald-700 font-medium mt-0.5">{ad.offer_headline}</div>}
+                </div>
+                {ad.price && <div className="font-bold text-sm text-[#0A6E3B] shrink-0">₹{ad.price}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading && <div className="mt-10 flex items-center gap-2 text-stone-500 text-sm justify-center"><Loader2 size={16} className="animate-spin" /> Searching…</div>}
 
